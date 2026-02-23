@@ -1,0 +1,52 @@
+# Existing rules
+HELP.md
+.gradle
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### Kotlin ###
+.kotlin
+
+# Added by Gemini
+.DS_Store
+*.log
+*.jar
+/.catalystrc
+/src/main/resources/app-config.json
+# app-config.json at project root is safe to commit (keep env_variables empty — set secrets via Catalyst Console)
+/catalyst-debug.log
+/catalyst.json
+/libs/
