@@ -50,3 +50,4 @@ out/
 /catalyst-debug.log
 /catalyst.json
 /libs/
+/.serena/
