@@ -15,7 +15,7 @@ and uses **Zoho Catalyst DataStore** as its database. The app currently implemen
 |---|---|
 | Language | Kotlin 2.3.10 |
 | Framework | Spring Boot 4.1.0-SNAPSHOT |
-| Security | Spring Security (stateless, Catalyst Bearer token) |
+| Security | Spring Security (stateless, Bearer token + session cookie) |
 | Database | Zoho Catalyst DataStore (queried via ZCQL) |
 | DB SDK | Zoho Catalyst Java SDK 2.2.0 (bundled JARs in `libs/`) |
 | Build | Gradle with Kotlin DSL |
@@ -41,7 +41,8 @@ GymJournal/Server/
     │   └── kotlin/dev/eknath/GymJournal/
     │       ├── GymJournalApplication.kt          # Spring Boot entry point
     │       ├── config/
-    │       │   ├── CatalystAuthFilter.kt          # Bearer token auth filter
+    │       │   ├── BearerAuthFilter.kt            # Auth via Authorization: Bearer header
+    │       │   ├── SessionAuthFilter.kt           # Auth via zcauthtoken cookie (web app)
     │       │   ├── SecurityConfig.kt              # Spring Security filter chains
     │       │   ├── CatalystConfig.kt              # Catalyst SDK setup (per-request init)
     │       │   └── CatalystPortCustomizer.kt      # Reads port from env var
@@ -87,18 +88,27 @@ Controller  →  Service  →  Module Repository  →  CatalystDataStoreReposito
 
 ### Authentication
 
-- **No session / No JWT**: Completely stateless.
-- Every protected request must include an `Authorization: Bearer <catalyst_token>` header.
-- `CatalystAuthFilter` calls `ZCProject.initProject(token, USER)` per request to validate the
-  token against Zoho Catalyst.
-- The raw token string is stored as the Spring Security principal and accessed via `currentUserId()`.
-- `/api/v1/health` is a public endpoint — no auth required.
+Completely stateless — no Spring session, no JWT. Two auth paths are supported and produce
+the **same principal** (Catalyst user ID as a String stored via `currentUserId()`):
+
+| Path | Client | Mechanism |
+|---|---|---|
+| `Authorization: Bearer <token>` | Mobile / API | `BearerAuthFilter` |
+| `zcauthtoken` cookie | Web app (AppSail) | `SessionAuthFilter` |
+
+Both filters call `ZCProject.initProject(token, USER)` then resolve the stable Catalyst numeric
+user ID via `ZCUser.getInstance(project).getCurrentUser().getUserId()`. This ID is stored as the
+Spring Security principal and written to every DataStore row as `userId`.
+
+`BearerAuthFilter` runs first. `SessionAuthFilter` skips if authentication is already set.
+`/api/v1/health` is public — no auth required.
 
 ### Security Filter Chains
 
 ```
-Order 1 — publicFilterChain   → matches /api/v1/health, permits all
-Order 2 — protectedFilterChain → all other routes, requires valid Catalyst Bearer token
+Order 1 — publicFilterChain    → matches /api/v1/health, permits all
+Order 2 — protectedFilterChain → all other routes:
+           BearerAuthFilter → SessionAuthFilter → UsernamePasswordAuthenticationFilter → ...
 ```
 
 ### Database (Catalyst DataStore)
@@ -121,7 +131,7 @@ Order 2 — protectedFilterChain → all other routes, requires valid Catalyst B
 
 ### Water Intake (Hydration)
 
-All endpoints require `Authorization: Bearer <token>`.
+All endpoints require auth — either `Authorization: Bearer <token>` or `zcauthtoken` cookie.
 
 | Method | Path | Description |
 |---|---|---|

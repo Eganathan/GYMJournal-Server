@@ -32,9 +32,12 @@ To add a new feature: create the module directory, add domain model in `model/do
 
 ### Authentication
 
-The app is completely stateless. Every protected request must carry `Authorization: Bearer <catalyst_token>`. `CatalystAuthFilter` validates it per-request by calling `ZCProject.initProject(token, USER)` against the Catalyst backend. The raw token is stored as the Spring Security principal and retrieved in controllers via `currentUserId()`.
+Completely stateless. Two auth paths both resolve to the same principal — the Catalyst numeric user ID (as a String) stored via `currentUserId()`:
 
-`/api/v1/health` is the only public endpoint (no auth required).
+- **`BearerAuthFilter`** — reads `Authorization: Bearer <token>` header (mobile / API clients)
+- **`SessionAuthFilter`** — reads `zcauthtoken` cookie set by Catalyst after web login (AppSail web app)
+
+Both call `ZCProject.initProject(token, USER)` then fetch the user ID via `ZCUser.getInstance(project).getCurrentUser().getUserId()`. `BearerAuthFilter` runs first; `SessionAuthFilter` skips if auth is already set. `/api/v1/health` is the only public endpoint.
 
 ### Catalyst DataStore / ZCQL
 
@@ -51,5 +54,5 @@ The SDK lives in `libs/` as local file dependencies. Three JARs are explicitly e
 
 - `ApiResponse<T>` — wrap all controller responses with `ApiResponse.ok(data)` or `ApiResponse.error("CODE", "message")`.
 - `ZcqlSanitizer` — always use before string interpolation into ZCQL.
-- `currentUserId()` — retrieves the authenticated user's token/ID from the security context.
+- `currentUserId()` — retrieves the authenticated Catalyst user ID from the security context (same value regardless of Bearer or session auth).
 - `CatalystPortCustomizer` — reads `X_ZOHO_CATALYST_LISTEN_PORT` env var (set by AppSail at runtime); defaults to `8080` locally.

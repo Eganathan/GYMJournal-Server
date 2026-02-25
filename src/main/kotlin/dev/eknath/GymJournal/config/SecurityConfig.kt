@@ -11,7 +11,10 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 @Configuration
 @EnableWebSecurity
-class SecurityConfig(private val catalystAuthFilter: CatalystAuthFilter) {
+class SecurityConfig(
+    private val bearerAuthFilter: BearerAuthFilter,
+    private val sessionAuthFilter: SessionAuthFilter
+) {
 
     // Public endpoints — no auth required
     @Bean
@@ -24,7 +27,10 @@ class SecurityConfig(private val catalystAuthFilter: CatalystAuthFilter) {
             .build()
     }
 
-    // All other endpoints — require valid Catalyst Bearer token
+    // All other endpoints — require a valid Catalyst identity via either:
+    //   1. Authorization: Bearer <token>  (API clients / mobile)
+    //   2. zcauthtoken cookie             (web app served from AppSail)
+    // BearerAuthFilter runs first; SessionAuthFilter skips if auth is already set.
     @Bean
     @Order(2)
     fun protectedFilterChain(http: HttpSecurity): SecurityFilterChain {
@@ -34,7 +40,8 @@ class SecurityConfig(private val catalystAuthFilter: CatalystAuthFilter) {
             .formLogin { it.disable() }
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
             .authorizeHttpRequests { it.anyRequest().authenticated() }
-            .addFilterBefore(catalystAuthFilter, UsernamePasswordAuthenticationFilter::class.java)
+            .addFilterBefore(bearerAuthFilter, UsernamePasswordAuthenticationFilter::class.java)
+            .addFilterAfter(sessionAuthFilter, BearerAuthFilter::class.java)
             .build()
     }
 }
