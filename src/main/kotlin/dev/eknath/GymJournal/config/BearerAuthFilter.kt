@@ -12,7 +12,10 @@ import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
 
 /**
- * Authenticates requests that carry an Authorization: Bearer <token> header.
+ * Authenticates requests that carry an Authorization header with a Catalyst access token.
+ *
+ * Accepts both raw tokens (as sent by catalyst.auth.generateAuthToken()) and
+ * "Bearer <token>" prefixed tokens for compatibility.
  *
  * Resolves the stable Catalyst user ID (Long → String) and stores it as the
  * Spring Security principal, so currentUserId() is consistent across auth methods.
@@ -29,11 +32,12 @@ class BearerAuthFilter : OncePerRequestFilter() {
     ) {
         val authHeader = request.getHeader("Authorization")
 
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+        if (authHeader.isNullOrBlank()) {
             chain.doFilter(request, response)
             return
         }
 
+        // Accept both raw token and "Bearer <token>" format
         val token = authHeader.removePrefix("Bearer ").trim()
 
         try {

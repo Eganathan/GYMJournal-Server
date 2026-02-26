@@ -9,6 +9,26 @@ and uses **Zoho Catalyst DataStore** as its database. The app currently implemen
 
 ---
 
+## Base URLs
+
+| Environment | URL |
+|---|---|
+| Development (AppSail) | `https://gymjournal.development.catalystappsail.com` |
+| Local | `http://localhost:8080` |
+
+## API Documentation
+
+Detailed REST API docs (request/response shapes, params, error codes) live in [`apiDocs/`](./apiDocs/index.md):
+
+| File | Coverage |
+|---|---|
+| [`apiDocs/health.md`](./apiDocs/health.md) | `GET /api/v1/health` |
+| [`apiDocs/hydration.md`](./apiDocs/hydration.md) | All `/api/v1/water` endpoints |
+
+When adding a new module, add a corresponding `.md` file in `apiDocs/` and link it here.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -91,10 +111,16 @@ Controller  →  Service  →  Module Repository  →  CatalystDataStoreReposito
 Completely stateless — no Spring session, no JWT. Two auth paths are supported and produce
 the **same principal** (Catalyst user ID as a String stored via `currentUserId()`):
 
-| Path | Client | Mechanism |
-|---|---|---|
-| `Authorization: Bearer <token>` | Mobile / API | `BearerAuthFilter` |
-| `zcauthtoken` cookie | Web app (AppSail) | `SessionAuthFilter` |
+| Path | Client | Mechanism | Works cross-domain? |
+|---|---|---|---|
+| `Authorization: Bearer <token>` | Mobile / Web / API | `BearerAuthFilter` | Yes |
+| `zcauthtoken` cookie | Web app on **same AppSail instance** only | `SessionAuthFilter` | No |
+
+> **Important — session cookie limitation**: The `zcauthtoken` cookie is scoped to the domain
+> it was set on. Since the web app (`gymjournal-778776887.development.catalystserverless.com`)
+> and the API (`gymjournal.development.catalystappsail.com`) are on **different domains**, the
+> browser will never send the cookie to the API. **The web app must use Bearer token auth.**
+> Only `ZD_CSRF_TOKEN` crosses the domain boundary — that is not an auth token.
 
 Both filters call `ZCProject.initProject(token, USER)` then resolve the stable Catalyst numeric
 user ID via `ZCUser.getInstance(project).getCurrentUser().getUserId()`. This ID is stored as the
@@ -103,6 +129,20 @@ Spring Security principal and written to every DataStore row as `userId`.
 `BearerAuthFilter` runs first. `SessionAuthFilter` skips if authentication is already set.
 `/api/v1/health` is public — no auth required.
 
+#### Web app — how to get the Bearer token (Catalyst JS SDK)
+
+```js
+const token = await catalyst.auth.getToken()
+
+// Attach to every API request
+fetch(`${API_BASE}/api/v1/water/today`, {
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  }
+})
+```
+
 ### Security Filter Chains
 
 ```
@@ -110,6 +150,52 @@ Order 1 — publicFilterChain    → matches /api/v1/health, permits all
 Order 2 — protectedFilterChain → all other routes:
            BearerAuthFilter → SessionAuthFilter → UsernamePasswordAuthenticationFilter → ...
 ```
+
+### CORS
+
+Configured in `SecurityConfig.corsConfigurationSource()`, applied to `/api/**` on both filter chains.
+
+| Setting | Value |
+|---|---|
+| Allowed origins | `https://gymjournal-778776887.development.catalystserverless.com`, `http://localhost:3000`, `http://localhost:5173` |
+| Allowed methods | GET, POST, PUT, DELETE, OPTIONS |
+| Allowed headers | `Authorization`, `Content-Type`, `Accept` |
+| Allow credentials | `true` — required for both auth flows |
+
+> To add a new allowed origin, update `corsConfigurationSource()` in `SecurityConfig.kt`.
+
+#### What client developers must do
+
+**Bearer token (mobile / API clients)**
+
+Every protected request must include the `Authorization` header. The header is not forwarded or injected by the server — the client is fully responsible for attaching it:
+
+```http
+Authorization: Bearer <catalyst_token>
+```
+
+```js
+// fetch
+fetch(url, {
+  headers: { 'Authorization': `Bearer ${token}` }
+})
+
+// axios
+axios.get(url, {
+  headers: { Authorization: `Bearer ${token}` }
+})
+```
+
+**Session cookie (web app) — does not work cross-domain**
+
+The `zcauthtoken` cookie is scoped to the serverless domain and will not be sent to the AppSail API domain. The web app must use Bearer token instead (see above).
+
+**Headers NOT set by the server** — clients must set these themselves:
+
+| Header | Required by | Notes |
+|---|---|---|
+| `Authorization` | Bearer token flow | Must be attached manually on every protected request |
+| `Content-Type: application/json` | POST / PUT requests | Must be set when sending a JSON body |
 
 ### Database (Catalyst DataStore)
 
