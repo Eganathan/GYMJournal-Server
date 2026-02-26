@@ -11,10 +11,13 @@ and uses **Zoho Catalyst DataStore** as its database. The app currently implemen
 
 ## Base URLs
 
-| Environment | URL |
-|---|---|
-| Development (AppSail) | `https://gymjournal.development.catalystappsail.com` |
-| Local | `http://localhost:8080` |
+| Service | Environment | URL |
+|---|---|---|
+| API (AppSail) | Development | `https://gymjournal.development.catalystappsail.com` |
+| API (AppSail) | Production | `https://gym.eknath.dev` |
+| API (AppSail) | Local | `http://localhost:8080` |
+| Web Client | Development | `https://gymjournal-778776887.development.catalystserverless.com/app/index.html` |
+| Web Client | Production | `https://app.gym.eknath.dev` |
 
 ## API Documentation
 
@@ -35,7 +38,7 @@ When adding a new module, add a corresponding `.md` file in `apiDocs/` and link 
 |---|---|
 | Language | Kotlin 2.3.10 |
 | Framework | Spring Boot 4.1.0-SNAPSHOT |
-| Security | Spring Security (stateless, Bearer token + session cookie) |
+| Security | Spring Security (stateless, ZGS-injected headers via CatalystSDK) |
 | Database | Zoho Catalyst DataStore (queried via ZCQL) |
 | DB SDK | Zoho Catalyst Java SDK 2.2.0 (bundled JARs in `libs/`) |
 | Build | Gradle with Kotlin DSL |
@@ -108,94 +111,33 @@ Controller  →  Service  →  Module Repository  →  CatalystDataStoreReposito
 
 ### Authentication
 
-Completely stateless — no Spring session, no JWT. Two auth paths are supported and produce
-the **same principal** (Catalyst user ID as a String stored via `currentUserId()`):
+Auth is handled by **Catalyst ZGS (the gateway)** — not Spring Security directly.
 
-| Path | Client | Mechanism | Works cross-domain? |
-|---|---|---|---|
-| `Authorization: Bearer <token>` | Mobile / Web / API | `BearerAuthFilter` | Yes |
-| `zcauthtoken` cookie | Web app on **same AppSail instance** only | `SessionAuthFilter` | No |
+When a request arrives at AppSail, ZGS sits in front and injects user identity headers before forwarding to Spring. `CatalystAuthFilter` uses `CatalystSDK.init(AuthHeaderProvider)` to read those ZGS-injected headers and resolve the authenticated user via `ZCUser.getInstance().currentUser`. The resolved `userId` (Long → String) is stored as the Spring Security principal and retrieved in controllers via `currentUserId()`.
 
-> **Important — session cookie limitation**: The `zcauthtoken` cookie is scoped to the domain
-> it was set on. Since the web app (`gymjournal-778776887.development.catalystserverless.com`)
-> and the API (`gymjournal.development.catalystappsail.com`) are on **different domains**, the
-> browser will never send the cookie to the API. **The web app must use Bearer token auth.**
-> Only `ZD_CSRF_TOKEN` crosses the domain boundary — that is not an auth token.
+**No manual token parsing.** Spring never reads `Authorization` headers or cookies directly — ZGS handles all of that.
 
-Both filters call `ZCProject.initProject(token, USER)` then resolve the stable Catalyst numeric
-user ID via `ZCUser.getInstance(project).getCurrentUser().getUserId()`. This ID is stored as the
-Spring Security principal and written to every DataStore row as `userId`.
+`/api/v1/health` is public — no auth required. All other endpoints require a valid Catalyst user identity injected by ZGS.
 
-`BearerAuthFilter` runs first. `SessionAuthFilter` skips if authentication is already set.
-`/api/v1/health` is public — no auth required.
+#### Web app auth flow
 
-#### Web app — how to get the Bearer token (Catalyst JS SDK)
-
-```js
-const token = await catalyst.auth.getToken()
-
-// Attach to every API request
-fetch(`${API_BASE}/api/v1/water/today`, {
-  headers: {
-    'Authorization': `Bearer ${token}`,
-    'Content-Type': 'application/json'
-  }
-})
-```
+The web app uses `window.catalyst.auth.getJWTAuthToken()` (Catalyst Web SDK 4.0.0) to obtain a JWT token, which is sent with API requests. ZGS validates it and injects user identity headers into the forwarded AppSail request.
 
 ### Security Filter Chains
 
 ```
 Order 1 — publicFilterChain    → matches /api/v1/health, permits all
 Order 2 — protectedFilterChain → all other routes:
-           BearerAuthFilter → SessionAuthFilter → UsernamePasswordAuthenticationFilter → ...
+           OPTIONS preflight → permitted without auth (CORS handshake)
+           CatalystAuthFilter → reads ZGS-injected headers → sets SecurityContext
 ```
 
 ### CORS
 
-Configured in `SecurityConfig.corsConfigurationSource()`, applied to `/api/**` on both filter chains.
+**CORS is handled entirely by ZGS** — Spring has CORS disabled (`cors { it.disable() }`).
+Do not add Spring CORS configuration. To allow a new origin, configure it in the Catalyst console.
 
-| Setting | Value |
-|---|---|
-| Allowed origins | `https://gymjournal-778776887.development.catalystserverless.com`, `http://localhost:3000`, `http://localhost:5173` |
-| Allowed methods | GET, POST, PUT, DELETE, OPTIONS |
-| Allowed headers | `Authorization`, `Content-Type`, `Accept` |
-| Allow credentials | `true` — required for both auth flows |
-
-> To add a new allowed origin, update `corsConfigurationSource()` in `SecurityConfig.kt`.
-
-#### What client developers must do
-
-**Bearer token (mobile / API clients)**
-
-Every protected request must include the `Authorization` header. The header is not forwarded or injected by the server — the client is fully responsible for attaching it:
-
-```http
-Authorization: Bearer <catalyst_token>
-```
-
-```js
-// fetch
-fetch(url, {
-  headers: { 'Authorization': `Bearer ${token}` }
-})
-
-// axios
-axios.get(url, {
-  headers: { Authorization: `Bearer ${token}` }
-})
-```
-
-**Session cookie (web app) — does not work cross-domain**
-
-The `zcauthtoken` cookie is scoped to the serverless domain and will not be sent to the AppSail API domain. The web app must use Bearer token instead (see above).
-
-**Headers NOT set by the server** — clients must set these themselves:
-
-| Header | Required by | Notes |
-|---|---|---|
-| `Authorization` | Bearer token flow | Must be attached manually on every protected request |
-| `Content-Type: application/json` | POST / PUT requests | Must be set when sending a JSON body |
+`OPTIONS` preflight requests are explicitly permitted without auth in `SecurityConfig` so the CORS handshake succeeds before ZGS processes credentials.
 
 ### Database (Catalyst DataStore)
 

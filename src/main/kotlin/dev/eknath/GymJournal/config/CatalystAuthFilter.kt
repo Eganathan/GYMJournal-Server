@@ -1,8 +1,5 @@
 package dev.eknath.GymJournal.config
 
-import com.zc.auth.AuthHeaderProvider
-import com.zc.auth.CatalystSDK
-import com.zc.component.users.ZCUser
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
@@ -12,22 +9,10 @@ import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
 
 /**
- * Bridges the jakarta.servlet / javax.servlet mismatch:
- * CatalystSDK.init(HttpServletRequest) expects javax.servlet, but Spring Boot 3
- * uses jakarta.servlet. AuthHeaderProvider is a plain interface with no servlet
- * dependency, so we wrap the jakarta request with it instead.
- */
-private class RequestHeaderProvider(
-    private val request: HttpServletRequest
-) : AuthHeaderProvider {
-    override fun getHeaderValue(key: String): String? = request.getHeader(key)
-}
-
-/**
- * Authenticates requests using the Catalyst SDK's native auth mechanism.
- *
- * CatalystSDK.init(provider) lets the SDK read the ZGS-injected headers
- * automatically — no manual token or cookie parsing required.
+ * Authenticates requests by reading the x-zc-user-id header injected by ZGS.
+ * ZGS validates the user's session/token before forwarding to AppSail and only
+ * injects this header for authenticated requests — so we can trust it directly.
+ * Works for both web (via proxy function) and mobile (direct AppSail call).
  */
 @Component
 class CatalystAuthFilter : OncePerRequestFilter() {
@@ -37,15 +22,15 @@ class CatalystAuthFilter : OncePerRequestFilter() {
         response: HttpServletResponse,
         chain: FilterChain
     ) {
-        try {
-            CatalystSDK.init(RequestHeaderProvider(request))
-            val user = ZCUser.getInstance().currentUser
-            if (user != null) {
-                SecurityContextHolder.getContext().authentication =
-                    UsernamePasswordAuthenticationToken(user.userId.toString(), null, emptyList())
-            }
-        } catch (e: Throwable) {
-            // No valid auth context — SecurityContext stays empty; Spring Security rejects the request
+        // ZGS injects x-zc-user-id for every authenticated request — no SDK needed.
+        // This works for both web (via proxy function) and mobile (direct AppSail call).
+        val userId = request.getHeader("x-zc-user-id")
+        if (userId != null) {
+            println("[CatalystAuth] Authenticated user: $userId")
+            SecurityContextHolder.getContext().authentication =
+                UsernamePasswordAuthenticationToken(userId, null, emptyList())
+        } else {
+            println("[CatalystAuth] No x-zc-user-id — unauthenticated")
         }
 
         chain.doFilter(request, response)
