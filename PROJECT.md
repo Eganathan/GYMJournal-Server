@@ -4,8 +4,8 @@
 
 **GymJournal** is a Kotlin/Spring Boot backend API for a personal gym and fitness journaling
 application. It is designed to run on **Zoho Catalyst AppSail** (a serverless Java hosting platform)
-and uses **Zoho Catalyst DataStore** as its database. The app currently implements hydration
-(water intake) tracking and is structured to grow into a full gym journaling platform.
+and uses **Zoho Catalyst DataStore** as its database. The app implements hydration (water intake)
+tracking and a community exercise library, and is structured to grow into a full gym journaling platform.
 
 ---
 
@@ -27,8 +27,17 @@ Detailed REST API docs (request/response shapes, params, error codes) live in [`
 |---|---|
 | [`apiDocs/health.md`](./apiDocs/health.md) | `GET /api/v1/health` |
 | [`apiDocs/hydration.md`](./apiDocs/hydration.md) | All `/api/v1/water` endpoints |
+| [`apiDocs/exercises.md`](./apiDocs/exercises.md) | All `/api/v1/exercises` + `/api/v1/admin/seed` endpoints |
 
 When adding a new module, add a corresponding `.md` file in `apiDocs/` and link it here.
+
+## Skill Files
+
+Reference docs for technologies used in this project:
+
+| File | Content |
+|---|---|
+| [`skill/zcql.md`](./skill/zcql.md) | Complete ZCQL + DataStore reference — column types, table creation recipe format, Console navigation, full query syntax, Kotlin patterns, gotcha cheatsheet |
 
 ---
 
@@ -82,14 +91,24 @@ GymJournal/Server/
     │       └── modules/
     │           ├── health/
     │           │   └── HealthController.kt        # Public health-check endpoint
-    │           └── hydration/
-    │               ├── WaterIntakeController.kt   # REST endpoints
-    │               ├── WaterIntakeService.kt      # Business logic
-    │               └── WaterIntakeRepository.kt   # DataStore queries
+    │           ├── hydration/
+    │           │   ├── WaterIntakeController.kt   # REST endpoints
+    │           │   ├── WaterIntakeService.kt      # Business logic
+    │           │   └── WaterIntakeRepository.kt   # DataStore queries
+    │           ├── exercises/
+    │           │   ├── ExerciseController.kt      # Exercise library endpoints
+    │           │   ├── ExerciseService.kt         # Ownership checks, search, pagination
+    │           │   ├── ExerciseRepository.kt      # Exercise CRUD + JSON list helpers
+    │           │   ├── MuscleGroupRepository.kt   # MuscleGroups lookup table CRUD
+    │           │   └── EquipmentRepository.kt     # Equipment lookup table CRUD
+    │           └── admin/
+    │               └── AdminController.kt         # POST /api/v1/admin/seed (one-time data seeder)
     └── test/
         └── kotlin/dev/eknath/GymJournal/
             └── GymJournalApplicationTests.kt
 ```
+
+> `skill/` at the project root contains developer reference documents (ZCQL, etc.) — not deployed.
 
 ---
 
@@ -137,11 +156,13 @@ CORS is handled entirely by **ZGS** (the gateway in front of AppSail) — not by
 
 ### Database (Catalyst DataStore)
 
-- Zoho Catalyst DataStore is a NoSQL-like store queried with **ZCQL** (a SQL subset).
-- There are **no bind parameters** in ZCQL — all user input is sanitized manually via
-  `ZcqlSanitizer` (escapes single quotes, strips semicolons).
-- `ZCProject` is initialized per-request (not at startup) to support local development with
-  `catalyst serve`.
+- Zoho Catalyst DataStore is a NoSQL-like store queried with **ZCQL** (a SQL subset). See `skill/zcql.md` for the full reference.
+- **ZCQL V2** is live on production (since April 2025). INNER JOIN and LEFT JOIN are supported (up to 4 per query). Set env var `ZOHO_CATALYST_ZCQL_PARSER=V2` in AppSail function config.
+- There are **no bind parameters** in ZCQL — all user input is sanitized manually via `ZcqlSanitizer` (escapes single quotes, strips semicolons).
+- **Tables are created via the Catalyst Console UI only** — ZCQL has no DDL. Always provide exact column specs (name, type, mandatory, unique) when a new table is needed.
+- **System columns** on every table (never create manually): `ROWID` (BigInt, auto PK), `CREATORID` (Var Char, auto user), `CREATEDTIME` (DateTime, auto), `MODIFIEDTIME` (DateTime, auto-updated on write).
+- Max **300 rows** per query — always paginate with `LIMIT offset,count`.
+- `ZCProject` is initialized per-request (not at startup) to support local development with `catalyst serve`.
 
 ---
 
@@ -189,6 +210,38 @@ All endpoints require auth — `zcauthtoken` cookie (validated by ZGS, which inj
 }
 ```
 
+### Exercise Library
+
+All endpoints require auth. All exercises are public (no private/draft state). Only the creator can edit or delete their own exercise.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/exercises/categories` | List all muscle groups (lookup table) |
+| POST | `/api/v1/exercises/categories` | Add a new muscle group |
+| GET | `/api/v1/exercises/equipment` | List all equipment types (lookup table) |
+| POST | `/api/v1/exercises/equipment` | Add a new equipment type |
+| GET | `/api/v1/exercises` | Browse exercises — filter + search + paginate |
+| GET | `/api/v1/exercises/{id}` | Get full exercise detail |
+| POST | `/api/v1/exercises` | Create a new exercise (any authenticated user) |
+| PUT | `/api/v1/exercises/{id}` | Update exercise (creator only — 403 otherwise) |
+| DELETE | `/api/v1/exercises/{id}` | Delete exercise (creator only — 403 otherwise) |
+
+**GET /api/v1/exercises query params:**
+- `category` — muscle group slug (e.g. `LATS`)
+- `equipment` — equipment slug (e.g. `BARBELL`)
+- `difficulty` — `BEGINNER` | `INTERMEDIATE` | `ADVANCED`
+- `search` — substring match on name (in-memory, ZCQL has no reliable full-text search)
+- `mine=true` — only show the calling user's exercises (filtered via `CREATORID`)
+- `page` / `pageSize` — pagination (default 1 / 20, max pageSize 50)
+
+### Admin / Seed
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/admin/seed` | One-time seed for MuscleGroups and Equipment lookup tables |
+
+Idempotent — skips tables that already have rows. Call once after deploying to a fresh environment.
+
 ---
 
 ## DataStore Tables
@@ -197,11 +250,55 @@ All endpoints require auth — `zcauthtoken` cookie (validated by ZGS, which inj
 
 | Column | Type | Notes |
 |---|---|---|
-| ROWID | Long | Auto-generated by Catalyst |
-| userId | String | Catalyst user ID (from x-zc-user-id) |
-| logDateTime | String | ISO-8601 datetime: `2025-01-15T08:30:00` |
-| amountMl | Int | Volume in millilitres (min 1) |
-| notes | String | Optional free text |
+| `userId` | Var Char | Catalyst user ID (from `x-zc-user-id`) |
+| `logDateTime` | Var Char | Stored as `yyyy-MM-dd HH:mm:ss`; returned as ISO-8601 (`T` separator) |
+| `amountMl` | Int | Volume in millilitres (min 1) |
+| `notes` | Var Char | Optional free text |
+
+### MuscleGroups
+
+| Column | Type | Mandatory | Unique | Notes |
+|---|---|---|---|---|
+| `slug` | Var Char (50) | ✓ | ✓ | Stable identifier e.g. `LATS` — never changes |
+| `displayName` | Var Char (100) | ✓ | — | e.g. `Latissimus Dorsi` |
+| `shortName` | Var Char (50) | ✓ | — | e.g. `Lats` |
+| `description` | Text | — | — | Human-readable description |
+| `bodyRegion` | Var Char (20) | ✓ | — | `UPPER_BODY` \| `LOWER_BODY` \| `CORE` \| `FULL_BODY` \| `OTHER` |
+| `imageUrl` | Var Char (255) | — | — | Optional illustration URL |
+
+Default data inserted via `POST /api/v1/admin/seed`.
+
+### Equipment
+
+| Column | Type | Mandatory | Unique | Notes |
+|---|---|---|---|---|
+| `slug` | Var Char (50) | ✓ | ✓ | Stable identifier e.g. `BARBELL` — never changes |
+| `displayName` | Var Char (100) | ✓ | — | e.g. `Barbell` |
+| `description` | Text | — | — | Human-readable description |
+| `category` | Var Char (30) | ✓ | — | `FREE_WEIGHTS` \| `MACHINES` \| `BODYWEIGHT` \| `CARDIO_MACHINES` \| `OTHER` |
+| `imageUrl` | Var Char (255) | — | — | Optional illustration URL |
+
+Default data inserted via `POST /api/v1/admin/seed`.
+
+### Exercises
+
+> **Pending design change**: `primaryMuscleSlug` and `equipmentSlug` will be replaced with `primaryMuscleId` (BigInt FK → `MuscleGroups.ROWID`) and `equipmentId` (BigInt FK → `Equipment.ROWID`) to enable ZCQL JOINs for proper referential integrity.
+
+| Column | Type | Mandatory | Notes |
+|---|---|---|---|
+| `name` | Var Char (100) | ✓ | Exercise name |
+| `description` | Text | — | Overview |
+| `primaryMuscleSlug` | Var Char (50) | ✓ | Slug ref to MuscleGroups (→ will become FK) |
+| `secondaryMuscles` | Text | — | JSON array e.g. `["Rhomboids","Biceps"]` |
+| `equipmentSlug` | Var Char (50) | ✓ | Slug ref to Equipment (→ will become FK) |
+| `difficulty` | Var Char (20) | ✓ | `BEGINNER` \| `INTERMEDIATE` \| `ADVANCED` |
+| `instructions` | Text | ✓ | JSON array of ordered steps |
+| `tips` | Text | — | JSON array of coaching cues |
+| `imageUrl` | Var Char (255) | — | Optional |
+| `videoUrl` | Var Char (255) | — | Optional |
+| `tags` | Text | — | JSON array e.g. `["compound","pull"]` |
+
+List fields (`secondaryMuscles`, `instructions`, `tips`, `tags`) are stored as JSON strings and serialised/deserialised by `ExerciseRepository` via Jackson `ObjectMapper`.
 
 ---
 
@@ -284,4 +381,4 @@ To add a new feature module:
 4. Create `<Feature>Repository` using `CatalystDataStoreRepository`.
 5. Create `<Feature>Service` with business logic.
 6. Create `<Feature>Controller` with `@RestController` and `@RequestMapping("/api/v1/<feature>")`.
-7. Add the DataStore table in the Catalyst console with matching column names.
+7. Create the DataStore table in the Catalyst Console — provide exact column specs (name, type, mandatory, unique). See `skill/zcql.md` for the table creation recipe format and all available column types.

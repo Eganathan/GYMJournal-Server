@@ -80,7 +80,7 @@ class WaterIntakeService(private val repository: WaterIntakeRepository) {
 
     private fun WaterIntakeEntry.toResponse() = WaterEntryResponse(
         id = id ?: 0,
-        logDateTime = logDateTime,
+        logDateTime = logDateTime.replace(" ", "T"),   // stored as "yyyy-MM-dd HH:mm:ss" → ISO-8601
         amountMl = amountMl,
         notes = notes
     )

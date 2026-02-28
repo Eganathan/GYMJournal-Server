@@ -15,7 +15,8 @@ class WaterIntakeRepository(private val db: CatalystDataStoreRepository) {
         db.query(
             "SELECT * FROM $TABLE " +
             "WHERE userId = '${ZcqlSanitizer.sanitize(userId)}' " +
-            "AND logDateTime LIKE '${ZcqlSanitizer.sanitize(date)}%' " +
+            "AND logDateTime >= '${ZcqlSanitizer.sanitize(date)} 00:00:00' " +
+            "AND logDateTime <= '${ZcqlSanitizer.sanitize(date)} 23:59:59' " +
             "ORDER BY logDateTime ASC"
         ).map { it.toEntry() }
 
@@ -23,8 +24,8 @@ class WaterIntakeRepository(private val db: CatalystDataStoreRepository) {
         db.query(
             "SELECT * FROM $TABLE " +
             "WHERE userId = '${ZcqlSanitizer.sanitize(userId)}' " +
-            "AND logDateTime >= '${ZcqlSanitizer.sanitize(startDate)}' " +
-            "AND logDateTime <= '${ZcqlSanitizer.sanitize(endDate)}T23:59:59' " +
+            "AND logDateTime >= '${ZcqlSanitizer.sanitize(startDate)} 00:00:00' " +
+            "AND logDateTime <= '${ZcqlSanitizer.sanitize(endDate)} 23:59:59' " +
             "ORDER BY logDateTime ASC"
         ).map { it.toEntry() }
 
@@ -33,7 +34,11 @@ class WaterIntakeRepository(private val db: CatalystDataStoreRepository) {
 
     fun save(entry: WaterIntakeEntry): WaterIntakeEntry {
         val row = db.insert(TABLE, entry.toMap())
-        return entry.copy(id = row.get("ROWID")?.toString()?.toLongOrNull())
+        // Catalyst SDK may return ROWID under either "ROWID" or the prefixed key "TableName.ROWID"
+        val rowId = row.get("ROWID")?.toString()?.toLongOrNull()
+            ?: row.get("$TABLE.ROWID")?.toString()?.toLongOrNull()
+        // Read back the authoritative row so the response reflects what is actually stored
+        return if (rowId != null) findById(rowId) ?: entry.copy(id = rowId) else entry
     }
 
     fun update(id: Long, entry: WaterIntakeEntry) =

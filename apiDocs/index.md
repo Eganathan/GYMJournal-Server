@@ -41,3 +41,4 @@ All endpoints return a consistent JSON envelope:
 |---|---|
 | [health.md](./health.md) | `GET /api/v1/health` |
 | [hydration.md](./hydration.md) | `POST /api/v1/water`, `GET /api/v1/water/today`, etc. |
+| [exercises.md](./exercises.md) | `GET/POST /api/v1/exercises`, categories, equipment, `POST /api/v1/admin/seed` |
