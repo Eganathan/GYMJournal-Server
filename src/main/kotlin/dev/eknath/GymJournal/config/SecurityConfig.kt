@@ -12,14 +12,12 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 @Configuration
 @EnableWebSecurity
-class SecurityConfig(
-    private val catalystAuthFilter: CatalystAuthFilter
-) {
+class SecurityConfig(private val catalystAuthFilter: CatalystAuthFilter) {
 
-    // Public endpoints — no auth required
+    // Public API endpoint — health check, no auth required
     @Bean
     @Order(1)
-    fun publicFilterChain(http: HttpSecurity): SecurityFilterChain {
+    fun publicApiChain(http: HttpSecurity): SecurityFilterChain {
         return http
             .securityMatcher("/api/v1/health")
             .csrf { it.disable() }
@@ -28,22 +26,24 @@ class SecurityConfig(
             .build()
     }
 
-    // All other endpoints — CatalystSDK.init(request) reads ZGS-injected headers
-    // automatically; no manual token or cookie parsing needed.
-    // CORS headers are added by the Catalyst ZGS gateway — Spring must not add its own.
-    // OPTIONS preflight requests are permitted without auth so CORS handshake succeeds.
+    // Protected API endpoints — CatalystAuthFilter reads x-zc-user-id injected by ZGS.
+    // CORS is intentionally disabled in Spring — ZGS (the gateway in front of AppSail)
+    // already adds Access-Control-Allow-Origin. If Spring also adds it, the browser receives
+    // duplicate headers and rejects the response. Let ZGS own CORS entirely.
+    // OPTIONS preflight requests are permitted without auth so the CORS handshake succeeds.
     @Bean
     @Order(2)
-    fun protectedFilterChain(http: HttpSecurity): SecurityFilterChain {
+    fun protectedApiChain(http: HttpSecurity): SecurityFilterChain {
         return http
+            .securityMatcher("/api/**")
             .csrf { it.disable() }
             .cors { it.disable() }
             .httpBasic { it.disable() }
             .formLogin { it.disable() }
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
-            .authorizeHttpRequests {
-                it.requestMatchers(HttpMethod.OPTIONS).permitAll()
-                it.anyRequest().authenticated()
+            .authorizeHttpRequests { auth ->
+                auth.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                    .anyRequest().authenticated()
             }
             .addFilterBefore(catalystAuthFilter, UsernamePasswordAuthenticationFilter::class.java)
             .build()

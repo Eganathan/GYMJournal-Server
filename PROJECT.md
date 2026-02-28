@@ -13,10 +13,10 @@ and uses **Zoho Catalyst DataStore** as its database. The app currently implemen
 
 | Service | Environment | URL |
 |---|---|---|
-| API (AppSail) | Development | `https://gymjournal.development.catalystappsail.com` |
+| API (AppSail) | Development | `https://appsail-10119736618.development.catalystappsail.com` |
 | API (AppSail) | Production | `https://gym.eknath.dev` |
 | API (AppSail) | Local | `http://localhost:8080` |
-| Web Client | Development | `https://gymjournal-778776887.development.catalystserverless.com/app/index.html` |
+| Web Client | Development | `https://gymjournal-778776887.development.catalystserverless.com` |
 | Web Client | Production | `https://app.gym.eknath.dev` |
 
 ## API Documentation
@@ -59,15 +59,13 @@ GymJournal/Server/
 └── src/
     ├── main/
     │   ├── resources/
-    │   │   ├── application.properties
-    │   │   └── app-config.json
+    │   │   └── application.properties
     │   └── kotlin/dev/eknath/GymJournal/
     │       ├── GymJournalApplication.kt          # Spring Boot entry point
     │       ├── config/
-    │       │   ├── BearerAuthFilter.kt            # Auth via Authorization: Bearer header
-    │       │   ├── SessionAuthFilter.kt           # Auth via zcauthtoken cookie (web app)
+    │       │   ├── CatalystAuthFilter.kt          # Auth: reads x-zc-user-id injected by ZGS
     │       │   ├── SecurityConfig.kt              # Spring Security filter chains
-    │       │   ├── CatalystConfig.kt              # Catalyst SDK setup (per-request init)
+    │       │   ├── CatalystConfig.kt              # Catalyst SDK notes (no startup init)
     │       │   └── CatalystPortCustomizer.kt      # Reads port from env var
     │       ├── repository/
     │       │   └── CatalystDataStoreRepository.kt # Generic DataStore CRUD wrapper
@@ -78,6 +76,7 @@ GymJournal/Server/
     │       │       └── WaterIntakeDtos.kt         # Request/response DTOs
     │       ├── util/
     │       │   ├── ApiResponse.kt                 # Unified response envelope
+    │       │   ├── GlobalExceptionHandler.kt      # @RestControllerAdvice — maps exceptions to ApiResponse
     │       │   ├── ZcqlSanitizer.kt               # ZCQL injection prevention
     │       │   └── SecurityContextExtensions.kt   # currentUserId() helper
     │       └── modules/
@@ -111,33 +110,30 @@ Controller  →  Service  →  Module Repository  →  CatalystDataStoreReposito
 
 ### Authentication
 
-Auth is handled by **Catalyst ZGS (the gateway)** — not Spring Security directly.
+Auth is handled by **`CatalystAuthFilter`** which runs on every protected request:
 
-When a request arrives at AppSail, ZGS sits in front and injects user identity headers before forwarding to Spring. `CatalystAuthFilter` uses `CatalystSDK.init(AuthHeaderProvider)` to read those ZGS-injected headers and resolve the authenticated user via `ZCUser.getInstance().currentUser`. The resolved `userId` (Long → String) is stored as the Spring Security principal and retrieved in controllers via `currentUserId()`.
+1. **User identity** — reads `x-zc-user-id` header injected by ZGS (trusted, no SDK call needed). Stored as the Spring Security principal; accessible via `currentUserId()`.
+2. **SDK init** — calls `CatalystSDK.init(AuthHeaderProvider)` which reads ZGS-injected project/credential headers to give the DataStore SDK a request context. Then calls `ZCProject.initProject(config)` with the default project config so `ZCTable.getInstance()` has a non-null project.
 
-**No manual token parsing.** Spring never reads `Authorization` headers or cookies directly — ZGS handles all of that.
+If `x-zc-user-id` is absent → unauthenticated (chain continues, Spring Security rejects).
+If SDK init throws → logged as warning; DataStore will surface its own error downstream.
 
-`/api/v1/health` is public — no auth required. All other endpoints require a valid Catalyst user identity injected by ZGS.
+`/api/v1/health` is public — no auth required. All other endpoints require `x-zc-user-id` to be present.
 
 #### Web app auth flow
 
-The web app uses `window.catalyst.auth.getJWTAuthToken()` (Catalyst Web SDK 4.0.0) to obtain a JWT token, which is sent with API requests. ZGS validates it and injects user identity headers into the forwarded AppSail request.
+The web client (on Catalyst Serverless) authenticates via the `zcauthtoken` cookie set by Catalyst's web auth. ZGS validates the cookie and injects `x-zc-user-id` into the forwarded AppSail request. `ZD_CSRF_TOKEN` / `X-ZCSRF-TOKEN` are handled by the Catalyst web SDK.
 
 ### Security Filter Chains
 
 ```
-Order 1 — publicFilterChain    → matches /api/v1/health, permits all
-Order 2 — protectedFilterChain → all other routes:
-           OPTIONS preflight → permitted without auth (CORS handshake)
-           CatalystAuthFilter → reads ZGS-injected headers → sets SecurityContext
+Order 1 — publicApiChain    → matches /api/v1/health, permits all
+Order 2 — protectedApiChain → matches /api/**, stateless, CatalystAuthFilter, requires auth
 ```
 
 ### CORS
 
-**CORS is handled entirely by ZGS** — Spring has CORS disabled (`cors { it.disable() }`).
-Do not add Spring CORS configuration. To allow a new origin, configure it in the Catalyst console.
-
-`OPTIONS` preflight requests are explicitly permitted without auth in `SecurityConfig` so the CORS handshake succeeds before ZGS processes credentials.
+CORS is handled entirely by **ZGS** (the gateway in front of AppSail) — not by Spring. Spring CORS is explicitly disabled to prevent duplicate `Access-Control-Allow-Origin` headers (ZGS adds its own; if Spring also adds one the browser rejects the response). To allow a new web client origin, configure it in the Catalyst Console under the AppSail service CORS settings.
 
 ### Database (Catalyst DataStore)
 
@@ -159,7 +155,7 @@ Do not add Spring CORS configuration. To allow a new origin, configure it in the
 
 ### Water Intake (Hydration)
 
-All endpoints require auth — either `Authorization: Bearer <token>` or `zcauthtoken` cookie.
+All endpoints require auth — `zcauthtoken` cookie (validated by ZGS, which injects `x-zc-user-id`).
 
 | Method | Path | Description |
 |---|---|---|
@@ -202,7 +198,7 @@ All endpoints require auth — either `Authorization: Bearer <token>` or `zcauth
 | Column | Type | Notes |
 |---|---|---|
 | ROWID | Long | Auto-generated by Catalyst |
-| userId | String | Catalyst Bearer token string (principal) |
+| userId | String | Catalyst user ID (from x-zc-user-id) |
 | logDateTime | String | ISO-8601 datetime: `2025-01-15T08:30:00` |
 | amountMl | Int | Volume in millilitres (min 1) |
 | notes | String | Optional free text |
@@ -225,7 +221,7 @@ ZcqlSanitizer.sanitize(userInput)   // escapes ' → '' and strips ;
 ```
 
 ### `currentUserId()`
-Extension function — retrieves the authenticated user's token/ID from the Spring Security context:
+Extension function — retrieves the authenticated user's ID from the Spring Security context:
 ```kotlin
 val userId = currentUserId()
 ```
@@ -244,19 +240,15 @@ Reads `X_ZOHO_CATALYST_LISTEN_PORT` env var (set by Catalyst AppSail at runtime)
 # Run locally (standalone Spring Boot)
 ./gradlew bootRun
 
-# Run tests
-./gradlew test
-
 # Run with Catalyst CLI (recommended for local dev — sets up Catalyst env)
 catalyst serve
+
+# Run tests
+./gradlew test
 
 # Clean build
 ./gradlew clean build
 ```
-
-> **Note:** Local `catalyst serve` does not provide app-level credentials, so `ZCProject` is
-> initialized per-request using the user Bearer token. Pass a valid Catalyst user token in the
-> `Authorization: Bearer <token>` header when testing protected endpoints locally.
 
 ---
 
@@ -269,7 +261,7 @@ catalyst serve
 - **No framework ORM**: All DB access is via the Catalyst SDK and raw ZCQL strings.
 - **Ownership enforcement**: Services check `entry.userId != userId` before update/delete.
 - **Daily goal**: Hardcoded at `2500 ml` (`DEFAULT_DAILY_GOAL_ML` constant in `WaterIntakeService`).
-- **Error handling**: `NoSuchElementException` / `IllegalAccessException` thrown from services; Spring Boot default error handling maps these to appropriate HTTP responses.
+- **Error handling**: Centralised in `GlobalExceptionHandler` (`util/GlobalExceptionHandler.kt`). Maps `HttpMessageNotReadableException` → 400, `MethodArgumentNotValidException` → 400, `NoSuchElementException` → 404, `IllegalAccessException` → 403. All error responses use the `ApiResponse` envelope.
 
 ---
 
@@ -278,7 +270,7 @@ catalyst serve
 1. Build: `./gradlew build` → produces `build/libs/GymJournal-0.0.1-SNAPSHOT.jar`
 2. Deploy via Catalyst CLI or Catalyst console.
 3. AppSail injects `X_ZOHO_CATALYST_LISTEN_PORT` — the app reads this via `CatalystPortCustomizer`.
-4. In production, `ZCProject.initProject()` (no-arg) could be used for app-level init; currently deferred to per-request user-scoped init.
+4. `ZCProject` is initialised per-request in `CatalystAuthFilter`. The no-arg `initProject()` does **not** work in AppSail — AppSail does not provide a `catalyst-config.json` at runtime.
 
 ---
 

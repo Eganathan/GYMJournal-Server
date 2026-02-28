@@ -32,17 +32,18 @@ To add a new feature: create the module directory, add domain model in `model/do
 
 ### Authentication
 
-Completely stateless. Two auth paths both resolve to the same principal — the Catalyst numeric user ID (as a String) stored via `currentUserId()`:
+Completely stateless. A single `CatalystAuthFilter` handles all request types:
 
-- **`BearerAuthFilter`** — reads `Authorization: Bearer <token>` header (mobile / API clients)
-- **`SessionAuthFilter`** — reads `zcauthtoken` cookie set by Catalyst after web login (AppSail web app)
+- **User identity**: ZGS injects `x-zc-user-id` for every authenticated request — this is trusted directly as the principal (no SDK call needed for auth).
+- **SDK init**: `CatalystSDK.init(AuthHeaderProvider { headerName -> request.getHeader(headerName) })` is called per-request. This reads ZGS-injected project/credential headers and is the correct approach for AppSail + Jakarta servlets (servlet API ≥5).
+- `/api/v1/health` is the only public endpoint.
 
-Both call `ZCProject.initProject(token, USER)` then fetch the user ID via `ZCUser.getInstance(project).getCurrentUser().getUserId()`. `BearerAuthFilter` runs first; `SessionAuthFilter` skips if auth is already set. `/api/v1/health` is the only public endpoint.
+**Important**: `X-ZC-User-Cred-Token` is a ZGS-internal credential — do NOT pass it to `ZCProject.initProject(token, USER)`. It is not a standard Catalyst access token and will cause "Environment Variables does not Exists" errors.
 
 ### Catalyst DataStore / ZCQL
 
 - **No bind parameters** — all user-supplied strings must be sanitized with `ZcqlSanitizer.sanitize()` before interpolation into ZCQL queries.
-- `ZCProject` is initialized per-request (not at app startup) to support local `catalyst serve` dev, where app-level credentials are unavailable.
+- `CatalystSDK.init(AuthHeaderProvider)` is called per-request in `CatalystAuthFilter` to set up the SDK context (reads ZGS request headers). Do NOT manually set Catalyst SDK env vars — AppSail injects them automatically.
 - `CatalystDataStoreRepository` provides `query`, `queryOne`, `insert`, `update`, `delete`, and `count`. Module repositories wrap this with table-specific mappers.
 - `com.zc.component.object` must be backtick-escaped in Kotlin imports (`\`object\``) because `object` is a keyword.
 

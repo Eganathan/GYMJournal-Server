@@ -8,13 +8,16 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 private const val DEFAULT_DAILY_GOAL_ML = 2500
+private val CATALYST_DT_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
 @Service
 class WaterIntakeService(private val repository: WaterIntakeRepository) {
 
     fun logWater(userId: String, request: LogWaterRequest): WaterEntryResponse {
         val dateTime = request.logDateTime
-            ?: LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+            ?.replace("T", " ")            // normalise ISO "T" separator to space
+            ?.substringBefore(".")         // drop fractional seconds if present
+            ?: LocalDateTime.now().format(CATALYST_DT_FORMAT)
 
         val entry = WaterIntakeEntry(
             userId = userId,
@@ -42,7 +45,7 @@ class WaterIntakeService(private val repository: WaterIntakeRepository) {
 
         // Group by date and compute daily totals
         return entries
-            .groupBy { it.logDateTime.substringBefore("T") }
+            .groupBy { it.logDateTime.substringBefore(" ").substringBefore("T") }
             .map { (date, dayEntries) ->
                 val totalMl = dayEntries.sumOf { it.amountMl }
                 WaterHistoryResponse(
