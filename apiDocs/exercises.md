@@ -133,8 +133,8 @@ GET /api/v1/exercises?category=LATS&difficulty=INTERMEDIATE&page=1&pageSize=20
     {
       "id": 789,
       "name": "Pull Up",
-      "primaryMuscleSlug": "LATS",
-      "equipmentSlug": "PULLUP_BAR",
+      "primaryMuscleId": 3,
+      "equipmentId": 10,
       "difficulty": "INTERMEDIATE",
       "createdBy": "userId123"
     }
@@ -167,9 +167,9 @@ Get full detail for a single exercise.
     "id": 789,
     "name": "Pull Up",
     "description": "A foundational upper-body pulling movement.",
-    "primaryMuscleSlug": "LATS",
+    "primaryMuscleId": 3,
     "secondaryMuscles": ["Rhomboids", "Trapezius", "Biceps"],
-    "equipmentSlug": "PULLUP_BAR",
+    "equipmentId": 10,
     "difficulty": "INTERMEDIATE",
     "instructions": [
       "Grip the bar slightly wider than shoulder width, palms facing away.",
@@ -205,9 +205,9 @@ Create a new exercise. Any authenticated user can contribute to the library.
 |---|---|---|---|
 | `name` | String | Yes | Max 100 chars. |
 | `description` | String | No | Defaults to `""`. |
-| `primaryMuscleSlug` | String | Yes | Must match a slug in the MuscleGroups table. |
+| `primaryMuscleId` | Long | Yes | ROWID of a row in the MuscleGroups table. |
 | `secondaryMuscles` | String[] | No | Named muscles e.g. `["Rhomboids", "Biceps"]`. Defaults to `[]`. |
-| `equipmentSlug` | String | Yes | Must match a slug in the Equipment table. |
+| `equipmentId` | Long | Yes | ROWID of a row in the Equipment table. |
 | `difficulty` | String | No | `BEGINNER` \| `INTERMEDIATE` \| `ADVANCED`. Default `BEGINNER`. |
 | `instructions` | String[] | Yes | At least one step required. |
 | `tips` | String[] | No | Defaults to `[]`. |
@@ -219,9 +219,9 @@ Create a new exercise. Any authenticated user can contribute to the library.
 {
   "name": "Pull Up",
   "description": "A foundational upper-body pulling movement.",
-  "primaryMuscleSlug": "LATS",
+  "primaryMuscleId": 3,
   "secondaryMuscles": ["Rhomboids", "Trapezius", "Biceps"],
-  "equipmentSlug": "PULLUP_BAR",
+  "equipmentId": 10,
   "difficulty": "INTERMEDIATE",
   "instructions": [
     "Grip the bar slightly wider than shoulder width, palms facing away.",

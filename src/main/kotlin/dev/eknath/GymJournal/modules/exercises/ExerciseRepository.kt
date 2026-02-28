@@ -1,7 +1,7 @@
 package dev.eknath.GymJournal.modules.exercises
 
-import com.fasterxml.jackson.core.type.TypeReference
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.core.type.TypeReference
+import tools.jackson.databind.ObjectMapper
 import com.zc.component.`object`.ZCRowObject
 import dev.eknath.GymJournal.model.domain.Difficulty
 import dev.eknath.GymJournal.model.domain.Exercise
@@ -30,8 +30,8 @@ class ExerciseRepository(
      */
     fun findAll(
         callingUserId: String,
-        muscleSlug: String?,
-        equipmentSlug: String?,
+        muscleId: Long?,
+        equipmentId: Long?,
         difficulty: String?,
         onlyMine: Boolean
     ): List<Exercise> {
@@ -40,11 +40,11 @@ class ExerciseRepository(
         if (onlyMine) {
             conditions.add("CREATORID = '${ZcqlSanitizer.sanitize(callingUserId)}'")
         }
-        muscleSlug?.let {
-            conditions.add("primaryMuscleSlug = '${ZcqlSanitizer.sanitize(it)}'")
+        muscleId?.let {
+            conditions.add("primaryMuscleId = $it")
         }
-        equipmentSlug?.let {
-            conditions.add("equipmentSlug = '${ZcqlSanitizer.sanitize(it)}'")
+        equipmentId?.let {
+            conditions.add("equipmentId = $it")
         }
         difficulty?.let {
             conditions.add("difficulty = '${ZcqlSanitizer.sanitize(it)}'")
@@ -78,31 +78,31 @@ class ExerciseRepository(
     // ---------------------------------------------------------------------------
 
     private fun ZCRowObject.toExercise() = Exercise(
-        id                 = get("ROWID")?.toString()?.toLongOrNull(),
-        name               = get("name")?.toString() ?: "",
-        description        = get("description")?.toString() ?: "",
-        primaryMuscleSlug  = get("primaryMuscleSlug")?.toString() ?: "",
-        secondaryMuscles   = get("secondaryMuscles")?.toString().toStringList(),
-        equipmentSlug      = get("equipmentSlug")?.toString() ?: "",
-        difficulty         = get("difficulty")?.toString().toDifficulty(),
-        instructions       = get("instructions")?.toString().toStringList(),
-        tips               = get("tips")?.toString().toStringList(),
-        imageUrl           = get("imageUrl")?.toString()?.takeIf { it.isNotBlank() },
-        videoUrl           = get("videoUrl")?.toString()?.takeIf { it.isNotBlank() },
-        tags               = get("tags")?.toString().toStringList(),
+        id               = get("ROWID")?.toString()?.toLongOrNull(),
+        name             = get("name")?.toString() ?: "",
+        description      = get("description")?.toString() ?: "",
+        primaryMuscleId  = get("primaryMuscleId")?.toString()?.toLongOrNull() ?: 0L,
+        secondaryMuscles = get("secondaryMuscles")?.toString().toStringList(),
+        equipmentId      = get("equipmentId")?.toString()?.toLongOrNull() ?: 0L,
+        difficulty       = get("difficulty")?.toString().toDifficulty(),
+        instructions     = get("instructions")?.toString().toStringList(),
+        tips             = get("tips")?.toString().toStringList(),
+        imageUrl         = get("imageUrl")?.toString()?.takeIf { it.isNotBlank() },
+        videoUrl         = get("videoUrl")?.toString()?.takeIf { it.isNotBlank() },
+        tags             = get("tags")?.toString().toStringList(),
         // Catalyst system columns — auto-provided, never written in toMap()
-        createdBy          = get("CREATORID")?.toString() ?: "",
-        createdAt          = get("CREATEDTIME")?.toString() ?: "",
-        updatedAt          = get("MODIFIEDTIME")?.toString() ?: ""
+        createdBy        = get("CREATORID")?.toString() ?: "",
+        createdAt        = get("CREATEDTIME")?.toString() ?: "",
+        updatedAt        = get("MODIFIEDTIME")?.toString() ?: ""
     )
 
     private fun Exercise.toMap(): Map<String, Any> = buildMap {
         // Only user-defined columns — CREATORID, CREATEDTIME, MODIFIEDTIME are set by Catalyst automatically
         put("name", name)
         put("description", description)
-        put("primaryMuscleSlug", primaryMuscleSlug)
+        put("primaryMuscleId", primaryMuscleId)
         put("secondaryMuscles", secondaryMuscles.toJson())
-        put("equipmentSlug", equipmentSlug)
+        put("equipmentId", equipmentId)
         put("difficulty", difficulty.name)
         put("instructions", instructions.toJson())
         put("tips", tips.toJson())

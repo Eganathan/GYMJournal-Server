@@ -69,10 +69,13 @@ class ExerciseService(
         page: Int,
         pageSize: Int
     ): Pair<List<ExerciseSummaryResponse>, ApiMeta> {
+        val muscleId = category?.uppercase()?.let { muscleGroupRepo.findBySlug(it)?.id }
+        val equipId = equipment?.uppercase()?.let { equipmentRepo.findBySlug(it)?.id }
+
         val all = exerciseRepo.findAll(
             callingUserId = callingUserId,
-            muscleSlug    = category?.uppercase(),
-            equipmentSlug = equipment?.uppercase(),
+            muscleId      = muscleId,
+            equipmentId   = equipId,
             difficulty    = difficulty?.uppercase(),
             onlyMine      = onlyMine
         )
@@ -98,27 +101,27 @@ class ExerciseService(
     }
 
     fun createExercise(userId: String, request: CreateExerciseRequest): ExerciseResponse {
-        // Validate slugs exist in lookup tables
-        if (!muscleGroupRepo.existsBySlug(request.primaryMuscleSlug))
-            throw NoSuchElementException("Muscle group '${request.primaryMuscleSlug}' not found")
-        if (!equipmentRepo.existsBySlug(request.equipmentSlug))
-            throw NoSuchElementException("Equipment '${request.equipmentSlug}' not found")
+        // Validate FK IDs exist in lookup tables
+        if (muscleGroupRepo.findById(request.primaryMuscleId) == null)
+            throw NoSuchElementException("Muscle group with id '${request.primaryMuscleId}' not found")
+        if (equipmentRepo.findById(request.equipmentId) == null)
+            throw NoSuchElementException("Equipment with id '${request.equipmentId}' not found")
 
         val exercise = Exercise(
-            name               = request.name.trim(),
-            description        = request.description.trim(),
-            primaryMuscleSlug  = request.primaryMuscleSlug.uppercase(),
-            secondaryMuscles   = request.secondaryMuscles,
-            equipmentSlug      = request.equipmentSlug.uppercase(),
-            difficulty         = request.difficulty,
-            instructions       = request.instructions,
-            tips               = request.tips,
-            imageUrl           = request.imageUrl?.takeIf { it.isNotBlank() },
-            videoUrl           = request.videoUrl?.takeIf { it.isNotBlank() },
-            tags               = request.tags,
-            createdBy          = "",   // set by Catalyst (CREATORID)
-            createdAt          = "",   // set by Catalyst (CREATEDTIME)
-            updatedAt          = ""    // set by Catalyst (MODIFIEDTIME)
+            name             = request.name.trim(),
+            description      = request.description.trim(),
+            primaryMuscleId  = request.primaryMuscleId,
+            secondaryMuscles = request.secondaryMuscles,
+            equipmentId      = request.equipmentId,
+            difficulty       = request.difficulty,
+            instructions     = request.instructions,
+            tips             = request.tips,
+            imageUrl         = request.imageUrl?.takeIf { it.isNotBlank() },
+            videoUrl         = request.videoUrl?.takeIf { it.isNotBlank() },
+            tags             = request.tags,
+            createdBy        = "",   // set by Catalyst (CREATORID)
+            createdAt        = "",   // set by Catalyst (CREATEDTIME)
+            updatedAt        = ""    // set by Catalyst (MODIFIEDTIME)
         )
         return exerciseRepo.save(exercise).toResponse()
     }
@@ -129,28 +132,28 @@ class ExerciseService(
         if (existing.createdBy != userId)
             throw IllegalAccessException("Exercise $id does not belong to this user")
 
-        // Validate changed slugs
-        request.primaryMuscleSlug?.let {
-            if (!muscleGroupRepo.existsBySlug(it))
-                throw NoSuchElementException("Muscle group '$it' not found")
+        // Validate changed FK IDs exist in lookup tables
+        request.primaryMuscleId?.let {
+            if (muscleGroupRepo.findById(it) == null)
+                throw NoSuchElementException("Muscle group with id '$it' not found")
         }
-        request.equipmentSlug?.let {
-            if (!equipmentRepo.existsBySlug(it))
-                throw NoSuchElementException("Equipment '$it' not found")
+        request.equipmentId?.let {
+            if (equipmentRepo.findById(it) == null)
+                throw NoSuchElementException("Equipment with id '$it' not found")
         }
 
         val updated = existing.copy(
-            name              = request.name?.trim() ?: existing.name,
-            description       = request.description?.trim() ?: existing.description,
-            primaryMuscleSlug = request.primaryMuscleSlug?.uppercase() ?: existing.primaryMuscleSlug,
-            secondaryMuscles  = request.secondaryMuscles ?: existing.secondaryMuscles,
-            equipmentSlug     = request.equipmentSlug?.uppercase() ?: existing.equipmentSlug,
-            difficulty        = request.difficulty ?: existing.difficulty,
-            instructions      = request.instructions ?: existing.instructions,
-            tips              = request.tips ?: existing.tips,
-            imageUrl          = request.imageUrl?.takeIf { it.isNotBlank() } ?: existing.imageUrl,
-            videoUrl          = request.videoUrl?.takeIf { it.isNotBlank() } ?: existing.videoUrl,
-            tags              = request.tags ?: existing.tags
+            name             = request.name?.trim() ?: existing.name,
+            description      = request.description?.trim() ?: existing.description,
+            primaryMuscleId  = request.primaryMuscleId ?: existing.primaryMuscleId,
+            secondaryMuscles = request.secondaryMuscles ?: existing.secondaryMuscles,
+            equipmentId      = request.equipmentId ?: existing.equipmentId,
+            difficulty       = request.difficulty ?: existing.difficulty,
+            instructions     = request.instructions ?: existing.instructions,
+            tips             = request.tips ?: existing.tips,
+            imageUrl         = request.imageUrl?.takeIf { it.isNotBlank() } ?: existing.imageUrl,
+            videoUrl         = request.videoUrl?.takeIf { it.isNotBlank() } ?: existing.videoUrl,
+            tags             = request.tags ?: existing.tags
         )
         exerciseRepo.update(id, updated)
         return (exerciseRepo.findById(id) ?: updated).toResponse()
@@ -188,29 +191,29 @@ class ExerciseService(
     )
 
     private fun Exercise.toResponse() = ExerciseResponse(
-        id                = id ?: 0,
-        name              = name,
-        description       = description,
-        primaryMuscleSlug = primaryMuscleSlug,
-        secondaryMuscles  = secondaryMuscles,
-        equipmentSlug     = equipmentSlug,
-        difficulty        = difficulty.name,
-        instructions      = instructions,
-        tips              = tips,
-        imageUrl          = imageUrl,
-        videoUrl          = videoUrl,
-        tags              = tags,
-        createdBy         = createdBy,
-        createdAt         = createdAt.replace(" ", "T"),
-        updatedAt         = updatedAt.replace(" ", "T")
+        id               = id ?: 0,
+        name             = name,
+        description      = description,
+        primaryMuscleId  = primaryMuscleId,
+        secondaryMuscles = secondaryMuscles,
+        equipmentId      = equipmentId,
+        difficulty       = difficulty.name,
+        instructions     = instructions,
+        tips             = tips,
+        imageUrl         = imageUrl,
+        videoUrl         = videoUrl,
+        tags             = tags,
+        createdBy        = createdBy,
+        createdAt        = createdAt.replace(" ", "T"),
+        updatedAt        = updatedAt.replace(" ", "T")
     )
 
     private fun Exercise.toSummaryResponse() = ExerciseSummaryResponse(
-        id                = id ?: 0,
-        name              = name,
-        primaryMuscleSlug = primaryMuscleSlug,
-        equipmentSlug     = equipmentSlug,
-        difficulty        = difficulty.name,
-        createdBy         = createdBy
+        id              = id ?: 0,
+        name            = name,
+        primaryMuscleId = primaryMuscleId,
+        equipmentId     = equipmentId,
+        difficulty      = difficulty.name,
+        createdBy       = createdBy
     )
 }

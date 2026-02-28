@@ -12,12 +12,11 @@ enum class Difficulty { BEGINNER, INTERMEDIATE, ADVANCED }
  * without a code change or redeploy.
  *
  * Catalyst DataStore table: MuscleGroups
- * Columns: slug, displayName, shortName, description, bodyRegion, imageUrl
+ * Columns: displayName, shortName, description, bodyRegion, imageUrl
  */
 data class MuscleGroup(
     val id: Long? = null,
-    val slug: String,           // Unique key stored in Exercise.primaryMuscleSlug, e.g. "LATS"
-    val displayName: String,    // Full anatomical name, e.g. "Latissimus Dorsi (Lats)"
+    val displayName: String,    // Full anatomical name, e.g. "Latissimus Dorsi"
     val shortName: String,      // Compact label for list views, e.g. "Lats"
     val description: String,    // What this muscle group is and what it does
     val bodyRegion: String,     // UPPER_BODY | LOWER_BODY | CORE | FULL_BODY | OTHER
@@ -29,11 +28,10 @@ data class MuscleGroup(
  * Using a table so new equipment types can be added without a redeploy.
  *
  * Catalyst DataStore table: Equipment
- * Columns: slug, displayName, description, category, imageUrl
+ * Columns: displayName, description, category, imageUrl
  */
 data class Equipment(
     val id: Long? = null,
-    val slug: String,           // Unique key stored in Exercise.equipmentSlug, e.g. "BARBELL"
     val displayName: String,    // Human-readable name, e.g. "Barbell"
     val description: String,    // What this equipment is
     val category: String,       // FREE_WEIGHTS | MACHINES | BODYWEIGHT | CARDIO_MACHINES | OTHER

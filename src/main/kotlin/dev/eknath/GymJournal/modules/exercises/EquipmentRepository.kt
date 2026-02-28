@@ -14,6 +14,9 @@ class EquipmentRepository(private val db: CatalystDataStoreRepository) {
     fun findAll(): List<Equipment> =
         db.query("SELECT * FROM $TABLE ORDER BY displayName ASC").map { it.toEquipment() }
 
+    fun findById(id: Long): Equipment? =
+        db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $id")?.toEquipment()
+
     fun findBySlug(slug: String): Equipment? =
         db.queryOne(
             "SELECT * FROM $TABLE WHERE slug = '${ZcqlSanitizer.sanitize(slug)}'"

@@ -14,6 +14,9 @@ class MuscleGroupRepository(private val db: CatalystDataStoreRepository) {
     fun findAll(): List<MuscleGroup> =
         db.query("SELECT * FROM $TABLE ORDER BY displayName ASC").map { it.toMuscleGroup() }
 
+    fun findById(id: Long): MuscleGroup? =
+        db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $id")?.toMuscleGroup()
+
     fun findBySlug(slug: String): MuscleGroup? =
         db.queryOne(
             "SELECT * FROM $TABLE WHERE slug = '${ZcqlSanitizer.sanitize(slug)}'"

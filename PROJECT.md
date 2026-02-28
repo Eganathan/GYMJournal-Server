@@ -282,15 +282,13 @@ Default data inserted via `POST /api/v1/admin/seed`.
 
 ### Exercises
 
-> **Pending design change**: `primaryMuscleSlug` and `equipmentSlug` will be replaced with `primaryMuscleId` (BigInt FK → `MuscleGroups.ROWID`) and `equipmentId` (BigInt FK → `Equipment.ROWID`) to enable ZCQL JOINs for proper referential integrity.
-
 | Column | Type | Mandatory | Notes |
 |---|---|---|---|
 | `name` | Var Char (100) | ✓ | Exercise name |
 | `description` | Text | — | Overview |
-| `primaryMuscleSlug` | Var Char (50) | ✓ | Slug ref to MuscleGroups (→ will become FK) |
+| `primaryMuscleId` | BigInt | ✓ | FK → `MuscleGroups.ROWID` |
 | `secondaryMuscles` | Text | — | JSON array e.g. `["Rhomboids","Biceps"]` |
-| `equipmentSlug` | Var Char (50) | ✓ | Slug ref to Equipment (→ will become FK) |
+| `equipmentId` | BigInt | ✓ | FK → `Equipment.ROWID` |
 | `difficulty` | Var Char (20) | ✓ | `BEGINNER` \| `INTERMEDIATE` \| `ADVANCED` |
 | `instructions` | Text | ✓ | JSON array of ordered steps |
 | `tips` | Text | — | JSON array of coaching cues |

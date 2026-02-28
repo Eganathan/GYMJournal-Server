@@ -52,9 +52,9 @@ data class EquipmentResponse(
 data class CreateExerciseRequest(
     @field:NotBlank @field:Size(max = 100) val name: String,
     val description: String = "",
-    @field:NotBlank val primaryMuscleSlug: String,
+    val primaryMuscleId: Long,
     val secondaryMuscles: List<String> = emptyList(),
-    @field:NotBlank val equipmentSlug: String,
+    val equipmentId: Long,
     val difficulty: Difficulty = Difficulty.BEGINNER,
     @field:NotEmpty val instructions: List<String>,
     val tips: List<String> = emptyList(),
@@ -66,9 +66,9 @@ data class CreateExerciseRequest(
 data class UpdateExerciseRequest(
     @field:Size(max = 100) val name: String? = null,
     val description: String? = null,
-    val primaryMuscleSlug: String? = null,
+    val primaryMuscleId: Long? = null,
     val secondaryMuscles: List<String>? = null,
-    val equipmentSlug: String? = null,
+    val equipmentId: Long? = null,
     val difficulty: Difficulty? = null,
     val instructions: List<String>? = null,
     val tips: List<String>? = null,
@@ -86,9 +86,9 @@ data class ExerciseResponse(
     val id: Long,
     val name: String,
     val description: String,
-    val primaryMuscleSlug: String,
+    val primaryMuscleId: Long,
     val secondaryMuscles: List<String>,
-    val equipmentSlug: String,
+    val equipmentId: Long,
     val difficulty: String,
     val instructions: List<String>,
     val tips: List<String>,
@@ -104,8 +104,8 @@ data class ExerciseResponse(
 data class ExerciseSummaryResponse(
     val id: Long,
     val name: String,
-    val primaryMuscleSlug: String,
-    val equipmentSlug: String,
+    val primaryMuscleId: Long,
+    val equipmentId: Long,
     val difficulty: String,
     val createdBy: String
 )

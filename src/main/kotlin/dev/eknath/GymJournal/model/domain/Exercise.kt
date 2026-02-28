@@ -11,8 +11,8 @@ package dev.eknath.GymJournal.model.domain
  * via Jackson ObjectMapper.
  *
  * Catalyst DataStore table: Exercises
- * User-defined columns: name, description, primaryMuscleSlug, secondaryMuscles,
- *                       equipmentSlug, difficulty, instructions, tips, imageUrl, videoUrl, tags
+ * User-defined columns: name, description, primaryMuscleId, secondaryMuscles,
+ *                       equipmentId, difficulty, instructions, tips, imageUrl, videoUrl, tags
  * System columns (auto-provided by Catalyst — do NOT create manually):
  *   ROWID       → id
  *   CREATORID   → createdBy
@@ -23,9 +23,9 @@ data class Exercise(
     val id: Long? = null,
     val name: String,
     val description: String,
-    val primaryMuscleSlug: String,          // FK (conceptual) → MuscleGroups.slug, e.g. "LATS"
+    val primaryMuscleId: Long,              // FK → MuscleGroups.ROWID
     val secondaryMuscles: List<String>,     // named muscles e.g. ["Rhomboids", "Biceps"]
-    val equipmentSlug: String,              // FK (conceptual) → Equipment.slug, e.g. "BARBELL"
+    val equipmentId: Long,                  // FK → Equipment.ROWID
     val difficulty: Difficulty,
     val instructions: List<String>,         // ordered how-to steps
     val tips: List<String>,                 // coaching cues / common mistakes
