@@ -5,7 +5,8 @@
 **GymJournal** is a Kotlin/Spring Boot backend API for a personal gym and fitness journaling
 application. It is designed to run on **Zoho Catalyst AppSail** (a serverless Java hosting platform)
 and uses **Zoho Catalyst DataStore** as its database. The app implements hydration (water intake)
-tracking and a community exercise library, and is structured to grow into a full gym journaling platform.
+tracking, a community exercise library, body metrics logging with health insights, routine templates,
+and workout session logging.
 
 ---
 
@@ -28,6 +29,9 @@ Detailed REST API docs (request/response shapes, params, error codes) live in [`
 | [`apiDocs/health.md`](./apiDocs/health.md) | `GET /api/v1/health` |
 | [`apiDocs/hydration.md`](./apiDocs/hydration.md) | All `/api/v1/water` endpoints |
 | [`apiDocs/exercises.md`](./apiDocs/exercises.md) | All `/api/v1/exercises` + `/api/v1/admin/seed` endpoints |
+| [`apiDocs/metrics.md`](./apiDocs/metrics.md) | All `/api/v1/metrics` endpoints |
+| [`apiDocs/routines.md`](./apiDocs/routines.md) | All `/api/v1/routines` endpoints |
+| [`apiDocs/workouts.md`](./apiDocs/workouts.md) | All `/api/v1/workouts` + exercise history/PBs endpoints |
 
 When adding a new module, add a corresponding `.md` file in `apiDocs/` and link it here.
 
@@ -94,11 +98,15 @@ GymJournal/Server/
     │       │   │   ├── WaterIntake.kt             # Domain entities
     │       │   │   ├── Exercise.kt                # Exercise + Difficulty enum
     │       │   │   ├── Lookup.kt                  # MuscleGroup + Equipment domain classes
-    │       │   │   └── BodyMetric.kt              # BodyMetricEntry + CustomMetricDef
+    │       │   │   ├── BodyMetric.kt              # BodyMetricEntry + CustomMetricDef
+    │       │   │   ├── Routine.kt                 # Routine + RoutineItem + RoutineItemType
+    │       │   │   └── Workout.kt                 # WorkoutSession + WorkoutSet
     │       │   └── dto/
     │       │       ├── WaterIntakeDtos.kt         # Request/response DTOs
     │       │       ├── ExerciseDtos.kt            # Exercise + lookup DTOs
-    │       │       └── BodyMetricDtos.kt          # Metric entry + snapshot + custom def DTOs
+    │       │       ├── BodyMetricDtos.kt          # Metric entry + snapshot + custom def DTOs
+    │       │       ├── RoutineDtos.kt             # Routine request/response DTOs
+    │       │       └── WorkoutDtos.kt             # Workout session + set request/response DTOs
     │       ├── util/
     │       │   ├── ApiResponse.kt                 # Unified response envelope
     │       │   ├── GlobalExceptionHandler.kt      # @RestControllerAdvice — maps exceptions to ApiResponse
@@ -122,6 +130,22 @@ GymJournal/Server/
     │           │   ├── BodyMetricService.kt       # Batch log, history, snapshot + computed metrics
     │           │   ├── BodyMetricRepository.kt    # BodyMetricEntries DataStore queries
     │           │   └── CustomMetricDefRepository.kt # CustomMetricDefs DataStore queries
+    │           ├── insights/
+    │           │   ├── MetricInsightsEngine.kt    # Interface + domain types (InsightContext, MetricInsight, etc.)
+    │           │   ├── CompositeInsightsEngine.kt # Aggregates all engines via Spring list injection
+    │           │   ├── InsightsService.kt         # Calls snapshot → builds context → runs composite engine
+    │           │   ├── InsightsController.kt      # GET /api/v1/metrics/insights
+    │           │   └── engines/
+    │           │       └── ReferenceRangeInsightsEngine.kt  # @Order(1) engine; clinical ref ranges
+    │           ├── routines/
+    │           │   ├── RoutineController.kt       # All /api/v1/routines endpoints
+    │           │   ├── RoutineService.kt          # Ownership checks, search/pagination, clone logic
+    │           │   └── RoutineRepository.kt       # Routines table CRUD; Jackson JSON for items/tags
+    │           ├── workouts/
+    │           │   ├── WorkoutController.kt       # All /api/v1/workouts + exercise history/PBs
+    │           │   ├── WorkoutService.kt          # Session assembly, routine pre-population, PB detection
+    │           │   ├── WorkoutSessionRepository.kt # WorkoutSessions CRUD
+    │           │   └── WorkoutSetRepository.kt    # WorkoutSets CRUD; history/PBs queries
     │           └── admin/
     │               └── AdminController.kt         # POST /api/v1/admin/seed (one-time data seeder)
     └── test/
@@ -275,6 +299,37 @@ All endpoints require auth. Each entry is owned by the creator. See [`features/B
 - `bmi = weight(kg) / (height(cm)/100)²`
 - `smiComputed = smm(kg) / (height(cm)/100)²`
 
+### Routine Library
+
+All endpoints require auth. Public routines are readable by any user; private routines are only accessible to the creator.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/routines` | Browse routines (`?mine=true`, `?search=`, `?page=`, `?pageSize=`) |
+| GET | `/api/v1/routines/{id}` | Get full routine (403 if private and not creator) |
+| POST | `/api/v1/routines` | Create a routine template |
+| PUT | `/api/v1/routines/{id}` | Update routine (creator only) |
+| DELETE | `/api/v1/routines/{id}` | Delete routine (creator only) |
+| POST | `/api/v1/routines/{id}/clone` | Clone any public routine to own library (always private copy) |
+
+### Workout Sessions
+
+All endpoints require auth. Sessions are private — only the creator can view/edit.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/workouts` | Start session (`routineId?`, `name?`, `startedAt?`) |
+| GET | `/api/v1/workouts` | List own sessions (`?status=IN_PROGRESS|COMPLETED`, `?page=`, `?pageSize=`) |
+| GET | `/api/v1/workouts/{id}` | Full session with sets grouped by `orderInSession` |
+| PATCH | `/api/v1/workouts/{id}` | Update session name/notes |
+| POST | `/api/v1/workouts/{id}/complete` | Mark COMPLETED, auto-detect personal bests |
+| DELETE | `/api/v1/workouts/{id}` | Delete session + all sets |
+| POST | `/api/v1/workouts/{sessionId}/sets` | Add a set (`itemType: EXERCISE|REST|CARDIO`) |
+| PUT | `/api/v1/workouts/{sessionId}/sets/{setId}` | Update a set's actual data |
+| DELETE | `/api/v1/workouts/{sessionId}/sets/{setId}` | Remove a set |
+| GET | `/api/v1/exercises/{id}/history` | Completed EXERCISE sets for this exercise (own, paginated) |
+| GET | `/api/v1/exercises/{id}/pbs` | Personal bests by rep count for this exercise |
+
 ### Admin / Seed
 
 | Method | Path | Description |
@@ -358,6 +413,56 @@ Computed metrics (`bmi`, `smiComputed`) are never stored — derived server-side
 | `metricKey` | Text | ✓ | e.g. `custom_sgpt` — derived from label, unique per user (enforced in service) |
 | `label` | Text | ✓ | User-supplied display name, e.g. `SGPT` |
 | `unit` | Text | — | e.g. `U/L` — may be empty string |
+
+### Routines
+
+| Column | Type | Mandatory | Notes |
+|---|---|---|---|
+| `name` | Var Char (100) | ✓ | Routine name |
+| `description` | Text | — | Overview |
+| `items` | Text | ✓ | JSON array of RoutineItem objects |
+| `estimatedMinutes` | Int | — | Advisory duration hint; 0 = not set |
+| `tags` | Text | — | JSON array e.g. `["push","chest"]` |
+| `isPublic` | Int | ✓ | `1` = any user can see/clone; `0` = private |
+
+`items` JSON structure per item: `{ order, type, exerciseId?, exerciseName?, sets?, repsPerSet?, weightKg?, restAfterSeconds?, durationSeconds?, cardioName?, durationMinutes?, targetSpeedKmh? }`
+
+### WorkoutSessions
+
+| Column | Type | Mandatory | Notes |
+|---|---|---|---|
+| `userId` | Var Char | ✓ | Catalyst user ID (explicit column for ZCQL queries) |
+| `routineId` | BigInt | ✓ | FK → `Routines.ROWID`; `0` = standalone session |
+| `routineName` | Var Char (100) | — | Denormalised; empty if standalone |
+| `name` | Var Char (100) | ✓ | e.g. "Push Day - Mon 3 Mar" |
+| `status` | Var Char (20) | ✓ | `IN_PROGRESS` \| `COMPLETED` |
+| `startedAt` | DateTime | ✓ | Written as `yyyy-MM-dd HH:mm:ss`; sessions list ordered by this DESC |
+| `completedAt` | DateTime | — | Omitted (null) on insert; written only when `/complete` is called |
+| `notes` | Text | — | Post-workout notes |
+
+> `startedAt` and `completedAt` are **DateTime** columns. `completedAt` is never written as an empty string — it is omitted from the insert map entirely and remains null until the session is completed. This avoids Catalyst rejecting an empty string for a DateTime type.
+
+### WorkoutSets
+
+| Column | Type | Mandatory | Notes |
+|---|---|---|---|
+| `sessionId` | BigInt | ✓ | FK → `WorkoutSessions.ROWID` |
+| `userId` | Var Char | ✓ | Denormalised for direct ZCQL queries |
+| `exerciseId` | BigInt | ✓ | FK → `Exercises.ROWID`; `0` for REST/CARDIO |
+| `exerciseName` | Var Char (100) | — | Denormalised; empty for REST; activity name for CARDIO |
+| `itemType` | Var Char (20) | ✓ | `EXERCISE` \| `REST` \| `CARDIO` |
+| `orderInSession` | Int | ✓ | Groups sets for the same exercise slot |
+| `setNumber` | Int | ✓ | 1, 2, 3… within an exercise slot; always 1 for REST/CARDIO |
+| `plannedReps` | Int | — | From routine template; 0 if not planned |
+| `plannedWeightKg` | Var Char | — | e.g. `"80.0"`; `"0"` if N/A |
+| `actualReps` | Int | — | 0 = not done yet |
+| `actualWeightKg` | Var Char | — | `"0"` = not done yet |
+| `durationSeconds` | Int | — | REST duration or CARDIO timed duration; 0 if N/A |
+| `distanceKm` | Var Char | — | CARDIO only; `"0"` otherwise |
+| `rpe` | Int | — | 1–10 Rate of Perceived Exertion; 0 = not set |
+| `isPersonalBest` | Int | — | `0`/`1`; set by `/complete` PB detection |
+| `notes` | Text | — | Per-set notes |
+| `completedAt` | Var Char | — | Empty = not done; `yyyy-MM-dd HH:mm:ss` when done |
 
 ---
 

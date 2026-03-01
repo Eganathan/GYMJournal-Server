@@ -70,10 +70,12 @@ Every endpoint (except `GET /api/v1/health`) returns a consistent JSON wrapper:
 | [hydration.md](./hydration.md) | Water intake logging, daily summaries, history |
 | [exercises.md](./exercises.md) | Community exercise library, muscle groups, equipment |
 | [metrics.md](./metrics.md) | Body metrics logging, snapshot, history, custom types, health insights |
+| [routines.md](./routines.md) | Routine templates — create, browse, clone public routines |
+| [workouts.md](./workouts.md) | Workout session logging — start/complete sessions, log sets, PBs, history |
 
 ---
 
-## Pagination (exercises only)
+## Pagination (exercises, routines, sessions)
 
 List responses that support pagination include a `meta` block:
 
@@ -93,7 +95,7 @@ List responses that support pagination include a `meta` block:
 
 ## Data ownership
 
-All user-generated records (water entries, exercises, metric entries) are owned by the user who created them. The backend enforces this:
+All user-generated records (water entries, exercises, metric entries, routines, sessions) are owned by the user who created them. The backend enforces this:
 
-- Any authenticated user can **read** public data (exercises are public; water and metrics entries are private).
+- Any authenticated user can **read** public data (exercises are public; routines support `isPublic`; water, metrics, and workout sessions are private).
 - Only the **creator** can update or delete their own records — other users receive `403 FORBIDDEN`.
