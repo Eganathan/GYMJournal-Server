@@ -3,7 +3,6 @@ package dev.eknath.GymJournal.modules.exercises
 import com.zc.component.`object`.ZCRowObject
 import dev.eknath.GymJournal.model.domain.Equipment
 import dev.eknath.GymJournal.repository.CatalystDataStoreRepository
-import dev.eknath.GymJournal.util.ZcqlSanitizer
 import org.springframework.stereotype.Repository
 
 private const val TABLE = "Equipment"
@@ -16,13 +15,6 @@ class EquipmentRepository(private val db: CatalystDataStoreRepository) {
 
     fun findById(id: Long): Equipment? =
         db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $id")?.toEquipment()
-
-    fun findBySlug(slug: String): Equipment? =
-        db.queryOne(
-            "SELECT * FROM $TABLE WHERE slug = '${ZcqlSanitizer.sanitize(slug)}'"
-        )?.toEquipment()
-
-    fun existsBySlug(slug: String): Boolean = findBySlug(slug) != null
 
     fun save(equipment: Equipment): Equipment {
         val row = db.insert(TABLE, equipment.toMap())
@@ -40,7 +32,6 @@ class EquipmentRepository(private val db: CatalystDataStoreRepository) {
 
     private fun ZCRowObject.toEquipment() = Equipment(
         id          = get("ROWID")?.toString()?.toLongOrNull(),
-        slug        = get("slug")?.toString() ?: "",
         displayName = get("displayName")?.toString() ?: "",
         description = get("description")?.toString() ?: "",
         category    = get("category")?.toString() ?: "",
@@ -48,7 +39,6 @@ class EquipmentRepository(private val db: CatalystDataStoreRepository) {
     )
 
     private fun Equipment.toMap(): Map<String, Any> = buildMap {
-        put("slug", slug)
         put("displayName", displayName)
         put("description", description)
         put("category", category)

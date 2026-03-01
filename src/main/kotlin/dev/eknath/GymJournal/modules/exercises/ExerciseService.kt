@@ -25,11 +25,8 @@ class ExerciseService(
         equipmentRepo.findAll().map { it.toResponse() }
 
     fun addMuscleGroup(request: CreateMuscleGroupRequest): MuscleGroupResponse {
-        if (muscleGroupRepo.existsBySlug(request.slug))
-            throw IllegalArgumentException("A muscle group with slug '${request.slug}' already exists")
         val saved = muscleGroupRepo.save(
             MuscleGroup(
-                slug        = request.slug.uppercase().trim(),
                 displayName = request.displayName.trim(),
                 shortName   = request.shortName.trim(),
                 description = request.description.trim(),
@@ -41,11 +38,8 @@ class ExerciseService(
     }
 
     fun addEquipment(request: CreateEquipmentRequest): EquipmentResponse {
-        if (equipmentRepo.existsBySlug(request.slug))
-            throw IllegalArgumentException("Equipment with slug '${request.slug}' already exists")
         val saved = equipmentRepo.save(
             Equipment(
-                slug        = request.slug.uppercase().trim(),
                 displayName = request.displayName.trim(),
                 description = request.description.trim(),
                 category    = request.category.uppercase().trim(),
@@ -61,21 +55,18 @@ class ExerciseService(
 
     fun listExercises(
         callingUserId: String,
-        category: String?,
-        equipment: String?,
+        categoryId: Long?,
+        equipmentId: Long?,
         difficulty: String?,
         search: String?,
         onlyMine: Boolean,
         page: Int,
         pageSize: Int
     ): Pair<List<ExerciseSummaryResponse>, ApiMeta> {
-        val muscleId = category?.uppercase()?.let { muscleGroupRepo.findBySlug(it)?.id }
-        val equipId = equipment?.uppercase()?.let { equipmentRepo.findBySlug(it)?.id }
-
         val all = exerciseRepo.findAll(
             callingUserId = callingUserId,
-            muscleId      = muscleId,
-            equipmentId   = equipId,
+            muscleId      = categoryId,
+            equipmentId   = equipmentId,
             difficulty    = difficulty?.uppercase(),
             onlyMine      = onlyMine
         )
@@ -173,7 +164,6 @@ class ExerciseService(
 
     private fun MuscleGroup.toResponse() = MuscleGroupResponse(
         id          = id ?: 0,
-        slug        = slug,
         displayName = displayName,
         shortName   = shortName,
         description = description,
@@ -183,7 +173,6 @@ class ExerciseService(
 
     private fun Equipment.toResponse() = EquipmentResponse(
         id          = id ?: 0,
-        slug        = slug,
         displayName = displayName,
         description = description,
         category    = category,

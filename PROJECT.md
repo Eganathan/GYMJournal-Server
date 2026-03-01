@@ -31,6 +31,17 @@ Detailed REST API docs (request/response shapes, params, error codes) live in [`
 
 When adding a new module, add a corresponding `.md` file in `apiDocs/` and link it here.
 
+## Feature Docs
+
+Comprehensive per-feature documentation (API spec + DB tables + implementation plan + frontend wiring notes).
+**Always update the relevant feature doc when changing that feature.**
+
+| File | Feature |
+|---|---|
+| [`features/BodyMetrics.md`](./features/BodyMetrics.md) | Body metrics logging, history, snapshot, custom metric defs |
+
+---
+
 ## Skill Files
 
 Reference docs for technologies used in this project:
@@ -80,9 +91,14 @@ GymJournal/Server/
     │       │   └── CatalystDataStoreRepository.kt # Generic DataStore CRUD wrapper
     │       ├── model/
     │       │   ├── domain/
-    │       │   │   └── WaterIntake.kt             # Domain entities
+    │       │   │   ├── WaterIntake.kt             # Domain entities
+    │       │   │   ├── Exercise.kt                # Exercise + Difficulty enum
+    │       │   │   ├── Lookup.kt                  # MuscleGroup + Equipment domain classes
+    │       │   │   └── BodyMetric.kt              # BodyMetricEntry + CustomMetricDef
     │       │   └── dto/
-    │       │       └── WaterIntakeDtos.kt         # Request/response DTOs
+    │       │       ├── WaterIntakeDtos.kt         # Request/response DTOs
+    │       │       ├── ExerciseDtos.kt            # Exercise + lookup DTOs
+    │       │       └── BodyMetricDtos.kt          # Metric entry + snapshot + custom def DTOs
     │       ├── util/
     │       │   ├── ApiResponse.kt                 # Unified response envelope
     │       │   ├── GlobalExceptionHandler.kt      # @RestControllerAdvice — maps exceptions to ApiResponse
@@ -101,6 +117,11 @@ GymJournal/Server/
     │           │   ├── ExerciseRepository.kt      # Exercise CRUD + JSON list helpers
     │           │   ├── MuscleGroupRepository.kt   # MuscleGroups lookup table CRUD
     │           │   └── EquipmentRepository.kt     # Equipment lookup table CRUD
+    │           ├── metrics/
+    │           │   ├── BodyMetricController.kt    # All /api/v1/metrics endpoints
+    │           │   ├── BodyMetricService.kt       # Batch log, history, snapshot + computed metrics
+    │           │   ├── BodyMetricRepository.kt    # BodyMetricEntries DataStore queries
+    │           │   └── CustomMetricDefRepository.kt # CustomMetricDefs DataStore queries
     │           └── admin/
     │               └── AdminController.kt         # POST /api/v1/admin/seed (one-time data seeder)
     └── test/
@@ -227,12 +248,32 @@ All endpoints require auth. All exercises are public (no private/draft state). O
 | DELETE | `/api/v1/exercises/{id}` | Delete exercise (creator only — 403 otherwise) |
 
 **GET /api/v1/exercises query params:**
-- `category` — muscle group slug (e.g. `LATS`)
-- `equipment` — equipment slug (e.g. `BARBELL`)
+- `categoryId` — filter by MuscleGroups ROWID (obtain IDs from `GET /exercises/categories`)
+- `equipmentId` — filter by Equipment ROWID (obtain IDs from `GET /exercises/equipment`)
 - `difficulty` — `BEGINNER` | `INTERMEDIATE` | `ADVANCED`
 - `search` — substring match on name (in-memory, ZCQL has no reliable full-text search)
 - `mine=true` — only show the calling user's exercises (filtered via `CREATORID`)
 - `page` / `pageSize` — pagination (default 1 / 20, max pageSize 50)
+
+### Body Metrics
+
+All endpoints require auth. Each entry is owned by the creator. See [`features/BodyMetrics.md`](./features/BodyMetrics.md) for full spec.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/metrics/entries` | Batch log metric entries (rejects computed types bmi/smiComputed with 400) |
+| GET | `/api/v1/metrics/entries?date=YYYY-MM-DD` | All entries for a date (defaults to today) |
+| PUT | `/api/v1/metrics/entries/{id}` | Update an entry (creator only — 403 otherwise) |
+| DELETE | `/api/v1/metrics/entries/{id}` | Delete an entry (creator only — 403 otherwise) |
+| GET | `/api/v1/metrics/{metricType}/history` | History for one metric type (default: last 90 days) |
+| GET | `/api/v1/metrics/snapshot` | Latest value per type + server-side computed bmi/smiComputed |
+| GET | `/api/v1/metrics/custom` | List user's custom metric definitions |
+| POST | `/api/v1/metrics/custom` | Create a custom metric definition |
+| DELETE | `/api/v1/metrics/custom/{key}` | Delete custom def + cascade-delete all its entries |
+
+**Computed metrics** (`bmi`, `smiComputed`) are never stored. They are derived server-side in the snapshot:
+- `bmi = weight(kg) / (height(cm)/100)²`
+- `smiComputed = smm(kg) / (height(cm)/100)²`
 
 ### Admin / Seed
 
@@ -257,26 +298,24 @@ Idempotent — skips tables that already have rows. Call once after deploying to
 
 ### MuscleGroups
 
-| Column | Type | Mandatory | Unique | Notes |
-|---|---|---|---|---|
-| `slug` | Var Char (50) | ✓ | ✓ | Stable identifier e.g. `LATS` — never changes |
-| `displayName` | Var Char (100) | ✓ | — | e.g. `Latissimus Dorsi` |
-| `shortName` | Var Char (50) | ✓ | — | e.g. `Lats` |
-| `description` | Text | — | — | Human-readable description |
-| `bodyRegion` | Var Char (20) | ✓ | — | `UPPER_BODY` \| `LOWER_BODY` \| `CORE` \| `FULL_BODY` \| `OTHER` |
-| `imageUrl` | Var Char (255) | — | — | Optional illustration URL |
+| Column | Type | Mandatory | Notes |
+|---|---|---|---|
+| `displayName` | Text | ✓ | e.g. `Latissimus Dorsi` |
+| `shortName` | Text | ✓ | e.g. `Lats` |
+| `description` | Text | — | Human-readable description |
+| `bodyRegion` | Text | ✓ | `UPPER_BODY` \| `LOWER_BODY` \| `CORE` \| `FULL_BODY` \| `OTHER` |
+| `imageUrl` | Text | — | Optional illustration URL |
 
 Default data inserted via `POST /api/v1/admin/seed`.
 
 ### Equipment
 
-| Column | Type | Mandatory | Unique | Notes |
-|---|---|---|---|---|
-| `slug` | Var Char (50) | ✓ | ✓ | Stable identifier e.g. `BARBELL` — never changes |
-| `displayName` | Var Char (100) | ✓ | — | e.g. `Barbell` |
-| `description` | Text | — | — | Human-readable description |
-| `category` | Var Char (30) | ✓ | — | `FREE_WEIGHTS` \| `MACHINES` \| `BODYWEIGHT` \| `CARDIO_MACHINES` \| `OTHER` |
-| `imageUrl` | Var Char (255) | — | — | Optional illustration URL |
+| Column | Type | Mandatory | Notes |
+|---|---|---|---|
+| `displayName` | Text | ✓ | e.g. `Barbell` |
+| `description` | Text | — | Human-readable description |
+| `category` | Text | ✓ | `FREE_WEIGHTS` \| `MACHINES` \| `BODYWEIGHT` \| `CARDIO_MACHINES` \| `OTHER` |
+| `imageUrl` | Text | — | Optional illustration URL |
 
 Default data inserted via `POST /api/v1/admin/seed`.
 
@@ -297,6 +336,28 @@ Default data inserted via `POST /api/v1/admin/seed`.
 | `tags` | Text | — | JSON array e.g. `["compound","pull"]` |
 
 List fields (`secondaryMuscles`, `instructions`, `tips`, `tags`) are stored as JSON strings and serialised/deserialised by `ExerciseRepository` via Jackson `ObjectMapper`.
+
+### BodyMetricEntries
+
+| Column | Type | Mandatory | Notes |
+|---|---|---|---|
+| `metricType` | Text | ✓ | e.g. `weight`, `bodyFat`, `custom_sgpt` |
+| `value` | Double | ✓ | The measured numeric value |
+| `unit` | Text | ✓ | e.g. `kg`, `%`, `mg/dL` |
+| `logDate` | Text | ✓ | `YYYY-MM-DD` — stored as Text so lexicographic `>=`/`<=` works |
+| `notes` | Text | — | Optional free-text note |
+
+> Recommendation: mark `logDate` as **Search Indexed** in the Catalyst Console for efficient date-range queries.
+
+Computed metrics (`bmi`, `smiComputed`) are never stored — derived server-side in the snapshot endpoint.
+
+### CustomMetricDefs
+
+| Column | Type | Mandatory | Notes |
+|---|---|---|---|
+| `metricKey` | Text | ✓ | e.g. `custom_sgpt` — derived from label, unique per user (enforced in service) |
+| `label` | Text | ✓ | User-supplied display name, e.g. `SGPT` |
+| `unit` | Text | — | e.g. `U/L` — may be empty string |
 
 ---
 
@@ -356,7 +417,7 @@ catalyst serve
 - **No framework ORM**: All DB access is via the Catalyst SDK and raw ZCQL strings.
 - **Ownership enforcement**: Services check `entry.userId != userId` before update/delete.
 - **Daily goal**: Hardcoded at `2500 ml` (`DEFAULT_DAILY_GOAL_ML` constant in `WaterIntakeService`).
-- **Error handling**: Centralised in `GlobalExceptionHandler` (`util/GlobalExceptionHandler.kt`). Maps `HttpMessageNotReadableException` → 400, `MethodArgumentNotValidException` → 400, `NoSuchElementException` → 404, `IllegalAccessException` → 403. All error responses use the `ApiResponse` envelope.
+- **Error handling**: Centralised in `GlobalExceptionHandler` (`util/GlobalExceptionHandler.kt`). Maps `HttpMessageNotReadableException` → 400, `MethodArgumentNotValidException` → 400, `IllegalArgumentException` → 400, `NoSuchElementException` → 404, `IllegalAccessException` → 403. All error responses use the `ApiResponse` envelope.
 
 ---
 

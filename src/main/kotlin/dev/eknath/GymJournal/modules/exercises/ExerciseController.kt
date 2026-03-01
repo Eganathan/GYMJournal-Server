@@ -57,8 +57,8 @@ class ExerciseController(private val service: ExerciseService) {
     /**
      * GET /api/v1/exercises
      * Browse the exercise library. Supports:
-     *   ?category=LATS        — filter by primary muscle slug
-     *   ?equipment=BARBELL    — filter by equipment slug
+     *   ?categoryId=3         — filter by primary muscle ROWID
+     *   ?equipmentId=10       — filter by equipment ROWID
      *   ?difficulty=INTERMEDIATE
      *   ?search=pull          — substring match on name (in-memory)
      *   ?mine=true            — only show the calling user's exercises
@@ -66,8 +66,8 @@ class ExerciseController(private val service: ExerciseService) {
      */
     @GetMapping
     fun listExercises(
-        @RequestParam(required = false) category: String?,
-        @RequestParam(required = false) equipment: String?,
+        @RequestParam(required = false) categoryId: Long?,
+        @RequestParam(required = false) equipmentId: Long?,
         @RequestParam(required = false) difficulty: String?,
         @RequestParam(required = false) search: String?,
         @RequestParam(defaultValue = "false") mine: Boolean,
@@ -76,8 +76,8 @@ class ExerciseController(private val service: ExerciseService) {
     ): ApiResponse<*> {
         val (items, meta) = service.listExercises(
             callingUserId = currentUserId(),
-            category      = category,
-            equipment     = equipment,
+            categoryId    = categoryId,
+            equipmentId   = equipmentId,
             difficulty    = difficulty,
             search        = search,
             onlyMine      = mine,

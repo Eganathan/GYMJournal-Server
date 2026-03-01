@@ -40,4 +40,10 @@ class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.FORBIDDEN)
     fun handleForbidden(ex: IllegalAccessException): ApiResponse<Nothing> =
         ApiResponse.error("FORBIDDEN", ex.message ?: "Access denied")
+
+    // Business rule violation (e.g. computed metric type submitted, invalid date format, duplicate custom key)
+    @ExceptionHandler(IllegalArgumentException::class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    fun handleIllegalArgument(ex: IllegalArgumentException): ApiResponse<Nothing> =
+        ApiResponse.error("INVALID_REQUEST", ex.message ?: "Invalid request")
 }

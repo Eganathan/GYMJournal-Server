@@ -10,7 +10,6 @@ import jakarta.validation.constraints.Size
 // ---------------------------------------------------------------------------
 
 data class CreateMuscleGroupRequest(
-    @field:NotBlank val slug: String,
     @field:NotBlank val displayName: String,
     @field:NotBlank val shortName: String,
     val description: String = "",
@@ -20,7 +19,6 @@ data class CreateMuscleGroupRequest(
 
 data class MuscleGroupResponse(
     val id: Long,
-    val slug: String,
     val displayName: String,
     val shortName: String,
     val description: String,
@@ -29,7 +27,6 @@ data class MuscleGroupResponse(
 )
 
 data class CreateEquipmentRequest(
-    @field:NotBlank val slug: String,
     @field:NotBlank val displayName: String,
     val description: String = "",
     @field:NotBlank val category: String,     // FREE_WEIGHTS | MACHINES | BODYWEIGHT | CARDIO_MACHINES | OTHER
@@ -38,7 +35,6 @@ data class CreateEquipmentRequest(
 
 data class EquipmentResponse(
     val id: Long,
-    val slug: String,
     val displayName: String,
     val description: String,
     val category: String,

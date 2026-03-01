@@ -3,7 +3,6 @@ package dev.eknath.GymJournal.modules.exercises
 import com.zc.component.`object`.ZCRowObject
 import dev.eknath.GymJournal.model.domain.MuscleGroup
 import dev.eknath.GymJournal.repository.CatalystDataStoreRepository
-import dev.eknath.GymJournal.util.ZcqlSanitizer
 import org.springframework.stereotype.Repository
 
 private const val TABLE = "MuscleGroups"
@@ -16,13 +15,6 @@ class MuscleGroupRepository(private val db: CatalystDataStoreRepository) {
 
     fun findById(id: Long): MuscleGroup? =
         db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $id")?.toMuscleGroup()
-
-    fun findBySlug(slug: String): MuscleGroup? =
-        db.queryOne(
-            "SELECT * FROM $TABLE WHERE slug = '${ZcqlSanitizer.sanitize(slug)}'"
-        )?.toMuscleGroup()
-
-    fun existsBySlug(slug: String): Boolean = findBySlug(slug) != null
 
     fun save(group: MuscleGroup): MuscleGroup {
         val row = db.insert(TABLE, group.toMap())
@@ -40,7 +32,6 @@ class MuscleGroupRepository(private val db: CatalystDataStoreRepository) {
 
     private fun ZCRowObject.toMuscleGroup() = MuscleGroup(
         id          = get("ROWID")?.toString()?.toLongOrNull(),
-        slug        = get("slug")?.toString() ?: "",
         displayName = get("displayName")?.toString() ?: "",
         shortName   = get("shortName")?.toString() ?: "",
         description = get("description")?.toString() ?: "",
@@ -49,7 +40,6 @@ class MuscleGroupRepository(private val db: CatalystDataStoreRepository) {
     )
 
     private fun MuscleGroup.toMap(): Map<String, Any> = buildMap {
-        put("slug", slug)
         put("displayName", displayName)
         put("shortName", shortName)
         put("description", description)

@@ -17,7 +17,6 @@ List all muscle groups. Used to populate category filters and body-diagram UIs o
   "data": [
     {
       "id": 123,
-      "slug": "LATS",
       "displayName": "Latissimus Dorsi",
       "shortName": "Lats",
       "description": "Large flat muscles of the back",
@@ -38,7 +37,6 @@ Add a new muscle group to the library.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `slug` | String | Yes | Uppercase identifier e.g. `NECK`. Must be unique. |
 | `displayName` | String | Yes | e.g. `Neck` |
 | `shortName` | String | Yes | Short label e.g. `Neck` |
 | `description` | String | No | Human-readable description. Defaults to `""`. |
@@ -47,7 +45,6 @@ Add a new muscle group to the library.
 
 ```json
 {
-  "slug": "NECK",
   "displayName": "Neck",
   "shortName": "Neck",
   "description": "Cervical spine muscles",
@@ -56,8 +53,6 @@ Add a new muscle group to the library.
 ```
 
 **Response — 201 Created** — same shape as a single category object above.
-
-**Error — 400** if slug already exists.
 
 ---
 
@@ -72,7 +67,6 @@ List all equipment types.
   "data": [
     {
       "id": 456,
-      "slug": "BARBELL",
       "displayName": "Barbell",
       "description": "Standard Olympic barbell",
       "category": "FREE_WEIGHTS",
@@ -92,15 +86,12 @@ Add a new equipment type to the library.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `slug` | String | Yes | Uppercase identifier e.g. `RINGS`. Must be unique. |
 | `displayName` | String | Yes | e.g. `Gymnastic Rings` |
 | `description` | String | No | Defaults to `""`. |
 | `category` | String | Yes | `FREE_WEIGHTS` \| `MACHINES` \| `BODYWEIGHT` \| `CARDIO_MACHINES` \| `OTHER` |
 | `imageUrl` | String | No | Optional URL. |
 
 **Response — 201 Created** — same shape as a single equipment object above.
-
-**Error — 400** if slug already exists.
 
 ---
 
@@ -112,8 +103,8 @@ Browse the community exercise library. Results are paginated and sorted by name 
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `category` | String | No | Filter by muscle group slug e.g. `LATS`. |
-| `equipment` | String | No | Filter by equipment slug e.g. `BARBELL`. |
+| `categoryId` | Long | No | Filter by MuscleGroups ROWID. Get IDs from `GET /exercises/categories`. |
+| `equipmentId` | Long | No | Filter by Equipment ROWID. Get IDs from `GET /exercises/equipment`. |
 | `difficulty` | String | No | `BEGINNER` \| `INTERMEDIATE` \| `ADVANCED` |
 | `search` | String | No | Substring match on exercise name (case-insensitive). |
 | `mine` | Boolean | No | `true` to show only the calling user's exercises. Default `false`. |
@@ -122,7 +113,7 @@ Browse the community exercise library. Results are paginated and sorted by name 
 
 **Example**
 ```
-GET /api/v1/exercises?category=LATS&difficulty=INTERMEDIATE&page=1&pageSize=20
+GET /api/v1/exercises?categoryId=3&difficulty=INTERMEDIATE&page=1&pageSize=20
 ```
 
 **Response — 200 OK**
@@ -236,7 +227,7 @@ Create a new exercise. Any authenticated user can contribute to the library.
 
 **Response — 201 Created** — full `ExerciseResponse` (same shape as GET /{id}).
 
-**Error — 404** if `primaryMuscleSlug` or `equipmentSlug` does not exist in the lookup tables.
+**Error — 404** if `primaryMuscleId` or `equipmentId` does not exist in the lookup tables.
 
 ---
 
