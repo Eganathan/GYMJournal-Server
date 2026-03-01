@@ -8,12 +8,20 @@ import dev.eknath.GymJournal.modules.exercises.ExerciseRepository
 import dev.eknath.GymJournal.modules.routines.RoutineService
 import dev.eknath.GymJournal.util.ApiMeta
 import org.springframework.stereotype.Service
+import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 
-private val DB_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+private val DB_FMT   = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 private val DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+
+/** Regex for ISO-8601 datetimes accepted by the API (e.g. "2026-03-01T09:00:00"). */
+private val ISO_DT_REGEX = Regex("""^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$""")
+
+/** Accepted values for WorkoutSet.itemType. */
+private val VALID_ITEM_TYPES = setOf("EXERCISE", "REST", "CARDIO")
 
 @Service
 class WorkoutService(
@@ -35,8 +43,11 @@ class WorkoutService(
      * If [request.routineId] is null → standalone empty session.
      */
     fun startSession(request: StartWorkoutRequest, userId: String): WorkoutSessionResponse {
-        val now = LocalDateTime.now()
-        val nowStr = now.format(DB_FMT)
+        // Validate caller-supplied startedAt before touching the DB
+        request.startedAt?.let { validateDatetimeFormat(it, "startedAt") }
+
+        val now     = LocalDateTime.now()
+        val nowStr  = now.format(DB_FMT)
         val dateStr = now.format(DATE_FMT)
 
         val routine = request.routineId?.let { rid ->
@@ -55,16 +66,16 @@ class WorkoutService(
             ?: if (routine != null) "${routine.name} - $dateStr" else "Free Workout - $dateStr"
 
         val session = WorkoutSession(
-            userId       = userId,
-            routineId    = routine?.id ?: 0L,
-            routineName  = routine?.name ?: "",
-            name         = sessionName,
-            status       = "IN_PROGRESS",
-            startedAt    = startedAt,
-            completedAt  = "",
-            notes        = "",
-            createdAt    = nowStr,
-            updatedAt    = nowStr
+            userId      = userId,
+            routineId   = routine?.id ?: 0L,
+            routineName = routine?.name ?: "",
+            name        = sessionName,
+            status      = "IN_PROGRESS",
+            startedAt   = startedAt,
+            completedAt = "",
+            notes       = "",
+            createdAt   = nowStr,
+            updatedAt   = nowStr
         )
 
         val saved = sessionRepo.save(session)
@@ -78,15 +89,12 @@ class WorkoutService(
                 .filter { it.type == RoutineItemType.EXERCISE && it.exerciseId != null }
                 .mapNotNull { it.exerciseId }
                 .distinct()
-                .associateWith { eid ->
-                    exerciseRepo.findById(eid)?.name
-                }
+                .associateWith { eid -> exerciseRepo.findById(eid)?.name }
 
             routine.items.forEachIndexed { idx, item ->
                 val order = item.order.takeIf { it > 0 } ?: (idx + 1)
                 when (item.type) {
                     RoutineItemType.EXERCISE -> {
-                        // Use current DB name if available; fall back to denormalised name in routine
                         val resolvedName = exerciseNameCache[item.exerciseId]
                             ?: item.exerciseName
                             ?: ""
@@ -173,18 +181,20 @@ class WorkoutService(
     fun listSessions(
         userId: String,
         status: String?,
+        startDate: String?,
+        endDate: String?,
         page: Int,
         pageSize: Int
     ): Pair<List<WorkoutSessionSummaryResponse>, ApiMeta> {
-        val sessions = sessionRepo.findByUser(userId, status)
-        val total = sessions.size.toLong()
         val safePage = page.coerceAtLeast(1)
         val safeSize = pageSize.coerceIn(1, 50)
-        val paged = sessions
-            .drop((safePage - 1) * safeSize)
-            .take(safeSize)
-            .map { it.toSummaryResponse() }
-        return paged to ApiMeta(page = safePage, pageSize = safeSize, total = total)
+        val offset   = (safePage - 1) * safeSize
+
+        val total   = sessionRepo.countByUser(userId, status, startDate, endDate)
+        val sessions = sessionRepo.findByUser(userId, status, startDate, endDate, offset, safeSize)
+
+        return sessions.map { it.toSummaryResponse() } to
+               ApiMeta(page = safePage, pageSize = safeSize, total = total)
     }
 
     // ── Get Full Session ──────────────────────────────────────────────────────
@@ -216,23 +226,38 @@ class WorkoutService(
     /**
      * Marks the session as COMPLETED and runs personal best detection for all
      * EXERCISE sets that have actualReps > 0.
+     *
+     * [force] = false (default): rejects completion if the session has EXERCISE items
+     * but none have been logged (actualReps > 0). This prevents accidental empty completions.
+     * [force] = true: skips the check — useful for REST-only / CARDIO-only / stretching sessions.
      */
-    fun completeSession(id: Long, userId: String): WorkoutSessionResponse {
+    fun completeSession(id: Long, userId: String, force: Boolean = false): WorkoutSessionResponse {
         val existing = sessionRepo.findById(id)
             ?: throw NoSuchElementException("Workout session with id '$id' not found")
         if (existing.userId != userId) throw IllegalAccessException("Session $id does not belong to this user")
         if (existing.status == "COMPLETED") return buildSessionResponse(existing)
 
-        val nowStr = LocalDateTime.now().format(DB_FMT)
+        // Guard: require at least one logged exercise set unless force=true
+        if (!force) {
+            val sets = setRepo.findBySession(id, userId)
+            val exerciseSets = sets.filter { it.itemType == "EXERCISE" }
+            if (exerciseSets.isNotEmpty() && exerciseSets.none { it.actualReps > 0 }) {
+                throw IllegalArgumentException(
+                    "No exercise sets have been logged for this session. " +
+                    "Log at least one set or pass ?force=true to complete anyway."
+                )
+            }
+        }
+
+        val nowStr    = LocalDateTime.now().format(DB_FMT)
         val completed = existing.copy(status = "COMPLETED", completedAt = nowStr)
         sessionRepo.update(id, completed)
 
         // PB detection
-        val sets = setRepo.findBySession(id, userId)
-        val exerciseSets = sets.filter { it.itemType == "EXERCISE" && it.actualReps > 0 }
+        val sets          = setRepo.findBySession(id, userId)
+        val exerciseSets  = sets.filter { it.itemType == "EXERCISE" && it.actualReps > 0 }
 
         exerciseSets.groupBy { it.exerciseId }.forEach { (exerciseId, sessionExerciseSets) ->
-            // Fetch all historical sets for this exercise (excluding current session)
             val history = setRepo.findExerciseHistory(userId, exerciseId)
                 .filter { it.sessionId != id }
 
@@ -250,23 +275,23 @@ class WorkoutService(
     }
 
     /**
-     * Returns true if [candidate] is a personal best compared to [history].
+     * Returns true if [candidate] is a strict personal best compared to [history].
      *
      * PB logic: for sets with the same or more reps, check if the new weight
-     * is greater than all historical weights. Also checks estimated 1RM (Epley formula).
+     * strictly exceeds all historical weights. Ties are NOT flagged as PBs.
      */
     private fun detectPb(candidate: WorkoutSet, history: List<WorkoutSet>): Boolean {
         val newWeight = candidate.actualWeightKg.toDoubleOrNull() ?: return false
         if (newWeight <= 0.0) return false
 
         val comparable = history.filter { it.actualReps >= candidate.actualReps }
-        if (comparable.isEmpty()) return true  // first time doing this weight/rep combo
+        if (comparable.isEmpty()) return true  // first time performing this rep range
 
         val bestHistoricalWeight = comparable
             .mapNotNull { it.actualWeightKg.toDoubleOrNull() }
             .maxOrNull() ?: return true
 
-        return newWeight >= bestHistoricalWeight
+        return newWeight > bestHistoricalWeight   // strict improvement only; ties are not flagged
     }
 
     // ── Delete Session ────────────────────────────────────────────────────────
@@ -286,6 +311,15 @@ class WorkoutService(
         val session = sessionRepo.findById(sessionId)
             ?: throw NoSuchElementException("Workout session with id '$sessionId' not found")
         if (session.userId != userId) throw IllegalAccessException("Session $sessionId does not belong to this user")
+        if (session.status == "COMPLETED")
+            throw IllegalStateException("Cannot add sets to a completed session")
+
+        // Validate inputs
+        val itemType = request.itemType.uppercase()
+        require(itemType in VALID_ITEM_TYPES) { "itemType must be one of: EXERCISE, REST, CARDIO" }
+        request.completedAt?.let { validateDatetimeFormat(it, "completedAt") }
+        validateWeightFormat(request.plannedWeightKg, "plannedWeightKg")
+        validateWeightFormat(request.actualWeightKg, "actualWeightKg")
 
         val completedAtDb = request.completedAt?.replace("T", " ") ?: ""
 
@@ -294,7 +328,7 @@ class WorkoutService(
             userId          = userId,
             exerciseId      = request.exerciseId,
             exerciseName    = request.exerciseName.trim(),
-            itemType        = request.itemType.uppercase(),
+            itemType        = itemType,
             orderInSession  = request.orderInSession,
             setNumber       = request.setNumber,
             plannedReps     = request.plannedReps,
@@ -316,22 +350,29 @@ class WorkoutService(
         val session = sessionRepo.findById(sessionId)
             ?: throw NoSuchElementException("Workout session with id '$sessionId' not found")
         if (session.userId != userId) throw IllegalAccessException("Session $sessionId does not belong to this user")
+        if (session.status == "COMPLETED")
+            throw IllegalStateException("Cannot modify sets on a completed session")
 
         val existing = setRepo.findById(setId)
             ?: throw NoSuchElementException("Set with id '$setId' not found")
         if (existing.sessionId != sessionId) throw NoSuchElementException("Set $setId does not belong to session $sessionId")
 
+        // Validate inputs
+        request.completedAt?.let { validateDatetimeFormat(it, "completedAt") }
+        request.plannedWeightKg?.let { validateWeightFormat(it, "plannedWeightKg") }
+        request.actualWeightKg?.let  { validateWeightFormat(it, "actualWeightKg") }
+
         val completedAtDb = request.completedAt?.replace("T", " ") ?: existing.completedAt
 
         val updated = existing.copy(
-            actualReps      = request.actualReps ?: existing.actualReps,
-            actualWeightKg  = request.actualWeightKg ?: existing.actualWeightKg,
-            plannedReps     = request.plannedReps ?: existing.plannedReps,
-            plannedWeightKg = request.plannedWeightKg ?: existing.plannedWeightKg,
-            durationSeconds = request.durationSeconds ?: existing.durationSeconds,
-            distanceKm      = request.distanceKm ?: existing.distanceKm,
-            rpe             = request.rpe ?: existing.rpe,
-            notes           = request.notes ?: existing.notes,
+            actualReps      = request.actualReps      ?: existing.actualReps,
+            actualWeightKg  = request.actualWeightKg  ?: existing.actualWeightKg,
+            plannedReps     = request.plannedReps      ?: existing.plannedReps,
+            plannedWeightKg = request.plannedWeightKg  ?: existing.plannedWeightKg,
+            durationSeconds = request.durationSeconds  ?: existing.durationSeconds,
+            distanceKm      = request.distanceKm       ?: existing.distanceKm,
+            rpe             = request.rpe              ?: existing.rpe,
+            notes           = request.notes            ?: existing.notes,
             completedAt     = completedAtDb
         )
 
@@ -343,6 +384,8 @@ class WorkoutService(
         val session = sessionRepo.findById(sessionId)
             ?: throw NoSuchElementException("Workout session with id '$sessionId' not found")
         if (session.userId != userId) throw IllegalAccessException("Session $sessionId does not belong to this user")
+        if (session.status == "COMPLETED")
+            throw IllegalStateException("Cannot delete sets from a completed session")
 
         val existing = setRepo.findById(setId)
             ?: throw NoSuchElementException("Set with id '$setId' not found")
@@ -354,8 +397,8 @@ class WorkoutService(
     // ── Exercise History & PBs ────────────────────────────────────────────────
 
     /**
-     * Returns recent completed EXERCISE sets for [exerciseId] belonging to [userId],
-     * paginated. Most recent first.
+     * Returns completed EXERCISE sets for [exerciseId] belonging to [userId],
+     * paginated. Most recent first. Uses DB-level pagination.
      */
     fun getExerciseHistory(
         exerciseId: Long,
@@ -363,31 +406,25 @@ class WorkoutService(
         page: Int,
         pageSize: Int
     ): Pair<List<WorkoutSetResponse>, ApiMeta> {
-        val history = setRepo.findExerciseHistory(userId, exerciseId)
-        val total = history.size.toLong()
         val safePage = page.coerceAtLeast(1)
         val safeSize = pageSize.coerceIn(1, 100)
-        val paged = history
-            .drop((safePage - 1) * safeSize)
-            .take(safeSize)
-            .map { it.toResponse() }
-        return paged to ApiMeta(page = safePage, pageSize = safeSize, total = total)
+        val offset   = (safePage - 1) * safeSize
+
+        val total   = setRepo.countExerciseHistory(userId, exerciseId)
+        val history = setRepo.findExerciseHistory(userId, exerciseId, offset, safeSize)
+
+        return history.map { it.toResponse() } to
+               ApiMeta(page = safePage, pageSize = safeSize, total = total)
     }
 
     /**
      * Returns personal best sets for [exerciseId] belonging to [userId].
-     *
-     * A "personal best" set is either:
-     *   - Marked isPersonalBest = 1 by the completion algorithm, OR
-     *   - The highest weight ever for each rep count (computed here for non-flagged history)
-     *
-     * Returns one best-weight record per distinct rep count, sorted by reps descending.
+     * One record per distinct rep count (highest weight), sorted by reps descending.
      */
     fun getPersonalBests(exerciseId: Long, userId: String): List<WorkoutSetResponse> {
         val history = setRepo.findExerciseHistory(userId, exerciseId)
         if (history.isEmpty()) return emptyList()
 
-        // Group by rep count and take the max weight for each
         return history
             .filter { it.actualReps > 0 }
             .groupBy { it.actualReps }
@@ -418,30 +455,41 @@ class WorkoutService(
             .sortedBy { it.orderInSession }
 
         return WorkoutSessionResponse(
-            id           = session.id!!,
-            name         = session.name,
-            routineId    = session.routineId,
-            routineName  = session.routineName,
-            status       = session.status,
-            startedAt    = session.startedAt.replace(" ", "T"),
-            completedAt  = session.completedAt.takeIf { it.isNotBlank() }?.replace(" ", "T"),
-            notes        = session.notes,
-            createdAt    = session.createdAt.replace(" ", "T"),
-            updatedAt    = session.updatedAt.replace(" ", "T"),
-            exercises    = groups
+            id          = session.id!!,
+            name        = session.name,
+            routineId   = session.routineId,
+            routineName = session.routineName,
+            status      = session.status,
+            startedAt   = session.startedAt.replace(" ", "T"),
+            completedAt = session.completedAt.takeIf { it.isNotBlank() }?.replace(" ", "T"),
+            notes       = session.notes,
+            createdAt   = session.createdAt.replace(" ", "T"),
+            updatedAt   = session.updatedAt.replace(" ", "T"),
+            exercises   = groups
         )
     }
 
     private fun WorkoutSession.toSummaryResponse() = WorkoutSessionSummaryResponse(
-        id           = id!!,
-        name         = name,
-        routineId    = routineId,
-        routineName  = routineName,
-        status       = status,
-        startedAt    = startedAt.replace(" ", "T"),
-        completedAt  = completedAt.takeIf { it.isNotBlank() }?.replace(" ", "T"),
-        updatedAt    = updatedAt.replace(" ", "T")
+        id              = id!!,
+        name            = name,
+        routineId       = routineId,
+        routineName     = routineName,
+        status          = status,
+        startedAt       = startedAt.replace(" ", "T"),
+        completedAt     = completedAt.takeIf { it.isNotBlank() }?.replace(" ", "T"),
+        durationMinutes = computeDuration(startedAt, completedAt),
+        updatedAt       = updatedAt.replace(" ", "T")
     )
+
+    /** Computes whole-minute duration between two DB datetime strings. Returns null if either is blank. */
+    private fun computeDuration(startedAt: String, completedAt: String): Int? {
+        if (startedAt.isBlank() || completedAt.isBlank()) return null
+        return try {
+            val start = LocalDateTime.parse(startedAt.replace(" ", "T"))
+            val end   = LocalDateTime.parse(completedAt.replace(" ", "T"))
+            Duration.between(start, end).toMinutes().toInt().takeIf { it >= 0 }
+        } catch (_: DateTimeParseException) { null }
+    }
 
     private fun WorkoutSet.toResponse() = WorkoutSetResponse(
         id              = id!!,
@@ -462,4 +510,24 @@ class WorkoutService(
         notes           = notes,
         completedAt     = completedAt.takeIf { it.isNotBlank() }?.replace(" ", "T")
     )
+
+    // ── Validation helpers ────────────────────────────────────────────────────
+
+    /** Throws [IllegalArgumentException] if [value] is not in ISO-8601 format (YYYY-MM-DDTHH:MM:SS). */
+    private fun validateDatetimeFormat(value: String, fieldName: String) {
+        if (!ISO_DT_REGEX.matches(value)) {
+            throw IllegalArgumentException(
+                "'$fieldName' must be in ISO-8601 format: YYYY-MM-DDTHH:MM:SS (e.g. 2026-03-01T09:00:00)"
+            )
+        }
+    }
+
+    /** Throws [IllegalArgumentException] if [value] cannot be parsed as a non-negative decimal number. */
+    private fun validateWeightFormat(value: String, fieldName: String) {
+        if (value.toDoubleOrNull() == null) {
+            throw IllegalArgumentException(
+                "'$fieldName' must be a numeric value (e.g. '80.0' or '0'). Got: '$value'"
+            )
+        }
+    }
 }

@@ -110,6 +110,7 @@ data class WorkoutSessionSummaryResponse(
     val status: String,
     val startedAt: String,
     val completedAt: String?,
+    val durationMinutes: Int?,   // null for IN_PROGRESS sessions; computed from startedAt → completedAt
     val updatedAt: String
 )
 

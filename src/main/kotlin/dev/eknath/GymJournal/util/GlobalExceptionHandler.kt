@@ -7,6 +7,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import org.springframework.web.multipart.MaxUploadSizeExceededException
 
 @RestControllerAdvice
 class GlobalExceptionHandler {
@@ -46,4 +47,16 @@ class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     fun handleIllegalArgument(ex: IllegalArgumentException): ApiResponse<Nothing> =
         ApiResponse.error("INVALID_REQUEST", ex.message ?: "Invalid request")
+
+    // Conflicting state (e.g. modifying sets on a COMPLETED session)
+    @ExceptionHandler(IllegalStateException::class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    fun handleConflict(ex: IllegalStateException): ApiResponse<Nothing> =
+        ApiResponse.error("CONFLICT", ex.message ?: "Operation not allowed in current state")
+
+    // File upload exceeds spring.servlet.multipart.max-file-size or max-request-size
+    @ExceptionHandler(MaxUploadSizeExceededException::class)
+    @ResponseStatus(HttpStatus.PAYLOAD_TOO_LARGE)
+    fun handleTooLarge(ex: MaxUploadSizeExceededException): ApiResponse<Nothing> =
+        ApiResponse.error("FILE_TOO_LARGE", "File exceeds the maximum allowed upload size (100 MB)")
 }

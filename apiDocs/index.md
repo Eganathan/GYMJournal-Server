@@ -59,6 +59,8 @@ Every endpoint (except `GET /api/v1/health`) returns a consistent JSON wrapper:
 | 400 | `INVALID_REQUEST` | Malformed JSON body, invalid date format, or business rule violation (e.g. submitting a computed metric type) |
 | 403 | `FORBIDDEN` | The resource exists but belongs to a different user |
 | 404 | `NOT_FOUND` | The resource ID does not exist |
+| 409 | `CONFLICT` | Operation not allowed in current state (e.g. modifying sets on a COMPLETED session) |
+| 413 | `FILE_TOO_LARGE` | Uploaded file exceeds the 100 MB hard cap |
 
 ---
 
@@ -72,6 +74,7 @@ Every endpoint (except `GET /api/v1/health`) returns a consistent JSON wrapper:
 | [metrics.md](./metrics.md) | Body metrics logging, snapshot, history, custom types, health insights |
 | [routines.md](./routines.md) | Routine templates — create, browse, clone public routines |
 | [workouts.md](./workouts.md) | Workout session logging — start/complete sessions, log sets, PBs, history |
+| [media.md](./media.md) | `POST /api/v1/media/upload` — image/video uploads to Catalyst FileStore |
 
 ---
 

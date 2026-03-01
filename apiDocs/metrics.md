@@ -39,14 +39,17 @@ The snapshot response includes them automatically when the source values (`weigh
 ### Typical client flow
 
 ```
-App launch          → GET /api/v1/metrics/snapshot       (populate dashboard cards)
-Open history chart  → GET /api/v1/metrics/{type}/history (populate trend graph)
-Open log form       → GET /api/v1/metrics/entries?date=  (pre-fill existing values)
-User submits form   → POST /api/v1/metrics/entries       (batch save all filled fields)
-User edits one row  → PUT /api/v1/metrics/entries/{id}
-User deletes one    → DELETE /api/v1/metrics/entries/{id}
+App launch          → GET /api/v1/metrics/snapshot            (populate dashboard cards)
+Open history chart  → GET /api/v1/metrics/{type}/history      (populate trend graph)
+Open log form       → GET /api/v1/metrics/entries?date=       (pre-fill existing values + collect entry IDs)
+User submits form   → POST /api/v1/metrics/entries            (batch save all filled fields)
+User edits one row  → GET /api/v1/metrics/entries?date=       (get the entry `id` for that date)
+                      PUT /api/v1/metrics/entries/{id}        (send only the changed fields)
+User deletes one    → DELETE /api/v1/metrics/entries/{id}     (id obtained same way as PUT)
 Manage custom types → GET/POST/DELETE /api/v1/metrics/custom
 ```
+
+> **Important:** `PUT` and `DELETE` both require the numeric entry `id`. You **must** call `GET /api/v1/metrics/entries?date=YYYY-MM-DD` first to obtain the `id` for the specific entry you want to modify. Do not construct or guess IDs.
 
 ---
 
@@ -304,23 +307,35 @@ Returns an empty array `[]` if no entries exist for that date.
 
 **Update a single metric entry.**
 
-All fields are optional — only the fields you include are updated. Useful when the user corrects a value after submission, or adds a note.
+All body fields are optional — only the fields you include are applied. The `metricType` of an entry **cannot be changed** via PUT; it is fixed at creation time. To change the type you must delete the old entry and create a new one.
+
+> **Where does the `{id}` come from?**
+>
+> The `id` is the numeric `id` field returned in every `MetricEntryResponse` — from the `POST /api/v1/metrics/entries` response, or from `GET /api/v1/metrics/entries?date=YYYY-MM-DD`.
+>
+> **Typical flow for editing:**
+> ```
+> 1. GET  /api/v1/metrics/entries?date=2026-02-28   → find the entry for the type you want to edit, note its `id`
+> 2. PUT  /api/v1/metrics/entries/{id}              → send only the fields that changed
+> ```
+> If you skip step 1 and guess an ID, you will get **404**. Always fetch the entries list first.
 
 **Path Parameters**
 
 | Parameter | Type | Description |
 |---|---|---|
-| `id` | Long | Entry ID from a previous log or list response. |
+| `id` | Long | The `id` field from a `MetricEntryResponse` (log or list response). |
 
-**Request Body** — all fields optional
+**Request Body** — all fields optional; send only what changed
 
 | Field | Type | Description |
 |---|---|---|
 | `value` | Double | New measured value. |
 | `unit` | String | New unit string. |
 | `logDate` | String | New date in `YYYY-MM-DD`. |
-| `notes` | String | New notes text. |
+| `notes` | String | New or updated notes text. |
 
+**Example — correct a weight entry**
 ```json
 {
   "value": 82.1,
@@ -328,7 +343,52 @@ All fields are optional — only the fields you include are updated. Useful when
 }
 ```
 
-**Response — 200 OK** — the full updated entry (same shape as a single entry in the log response).
+**Example — update a Vitamin D result**
+
+First, get the entries for the date the lab result was logged:
+```
+GET /api/v1/metrics/entries?date=2026-02-10
+```
+Response includes:
+```json
+{ "id": 11585000000702908, "metricType": "vitaminD", "value": 28.0, "unit": "ng/mL", "logDate": "2026-02-10" }
+```
+Then correct the value:
+```
+PUT /api/v1/metrics/entries/11585000000702908
+```
+```json
+{
+  "value": 31.5,
+  "notes": "Corrected from lab report"
+}
+```
+
+**Example — backdate a blood test result**
+```json
+{
+  "logDate": "2026-01-15",
+  "value": 145.0
+}
+```
+
+**Response — 200 OK** — the full updated entry.
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 11585000000702908,
+    "metricType": "vitaminD",
+    "value": 31.5,
+    "unit": "ng/mL",
+    "logDate": "2026-02-10",
+    "notes": "Corrected from lab report",
+    "createdAt": "2026-02-10T09:00:00",
+    "updatedAt": "2026-03-01T14:22:00"
+  }
+}
+```
 
 **Errors**
 
@@ -336,7 +396,7 @@ All fields are optional — only the fields you include are updated. Useful when
 |---|---|
 | 400 `INVALID_REQUEST` | `logDate` provided but not in `YYYY-MM-DD` format |
 | 403 `FORBIDDEN` | Entry belongs to a different user |
-| 404 `NOT_FOUND` | Entry ID does not exist |
+| 404 `NOT_FOUND` | Entry ID does not exist — check you obtained the `id` from `GET /api/v1/metrics/entries?date=` first |
 
 ---
 
@@ -671,6 +731,20 @@ All list endpoints return an empty array `[]` when there is no data — the clie
 ### Conflict between existing entries and re-logging
 
 The backend does not enforce "one entry per metricType per date". If the user submits `weight` for the same date twice, two entries will exist. On the log form, use `GET /api/v1/metrics/entries?date=` to pre-fill — if an entry already exists for a type, the client should `PUT` it instead of `POST`ing a new one.
+
+**Recommended log form pattern:**
+```
+1. GET /api/v1/metrics/entries?date={selectedDate}
+   → Store the response as a map:  existingEntries[metricType] = { id, value, unit, ... }
+
+2. User edits fields on the form.
+
+3. On save — for each edited field:
+   - If existingEntries[metricType] exists  → PUT /api/v1/metrics/entries/{existingEntries[metricType].id}
+   - If it does not exist                   → include in the POST /api/v1/metrics/entries batch
+```
+
+This ensures you always use the correct `id` for PUT calls and never duplicate entries.
 
 ### Displaying `logDate` vs. `createdAt`
 

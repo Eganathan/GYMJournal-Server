@@ -32,17 +32,27 @@ class WorkoutSetRepository(
     }
 
     /**
-     * All EXERCISE sets for a given exercise belonging to this user.
-     * Used for history and personal best queries.
-     * Only returns sets where completedAt is not empty (i.e., actually completed).
+     * Completed EXERCISE sets for [exerciseId] belonging to [userId], most recent first.
+     * The `completedAt != ''` condition is pushed to ZCQL so the 300-row budget is not
+     * wasted on incomplete (pre-populated) sets.
+     * [offset] / [limit] support DB-level pagination.
      */
-    fun findExerciseHistory(userId: String, exerciseId: Long): List<WorkoutSet> {
+    fun findExerciseHistory(userId: String, exerciseId: Long, offset: Int = 0, limit: Int = 100): List<WorkoutSet> {
         val uid = ZcqlSanitizer.sanitize(userId)
         return db.query(
             "SELECT * FROM $TABLE" +
-            " WHERE userId = '$uid' AND exerciseId = $exerciseId AND itemType = 'EXERCISE'" +
-            " ORDER BY completedAt DESC LIMIT 0,300"
-        ).map { it.toSet() }.filter { it.completedAt.isNotBlank() }
+            " WHERE userId = '$uid' AND exerciseId = $exerciseId" +
+            " AND itemType = 'EXERCISE' AND completedAt != ''" +
+            " ORDER BY completedAt DESC LIMIT $offset,$limit"
+        ).map { it.toSet() }
+    }
+
+    fun countExerciseHistory(userId: String, exerciseId: Long): Long {
+        val uid = ZcqlSanitizer.sanitize(userId)
+        return db.count(
+            TABLE,
+            "userId = '$uid' AND exerciseId = $exerciseId AND itemType = 'EXERCISE' AND completedAt != ''"
+        )
     }
 
     // ── Mutations ─────────────────────────────────────────────────────────────

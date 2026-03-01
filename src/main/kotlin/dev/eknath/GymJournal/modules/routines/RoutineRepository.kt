@@ -20,24 +20,34 @@ class RoutineRepository(
     // ── Queries ───────────────────────────────────────────────────────────────
 
     /**
-     * Returns routines the calling user can see:
-     *   - Public routines (`isPublic = 1`) when [onlyMine] is false
-     *   - Only the user's own routines when [onlyMine] is true
-     *
-     * In-memory name substring search is applied after the ZCQL fetch because
-     * ZCQL does not support reliable full-text search.
+     * DB-level paginated fetch — used when no search term is provided.
+     * [offset] = (page - 1) * pageSize, [limit] = pageSize.
      */
-    fun findAll(
-        callingUserId: String,
-        onlyMine: Boolean
-    ): List<Routine> {
-        val where = if (onlyMine) {
-            " WHERE CREATORID = '${ZcqlSanitizer.sanitize(callingUserId)}'"
-        } else {
-            " WHERE isPublic = 1"
-        }
-        return db.query("SELECT * FROM $TABLE$where ORDER BY MODIFIEDTIME DESC").map { it.toRoutine() }
+    fun findPaged(callingUserId: String, onlyMine: Boolean, offset: Int, limit: Int): List<Routine> {
+        val where = buildWhereClause(callingUserId, onlyMine)
+        return db.query(
+            "SELECT * FROM $TABLE$where ORDER BY MODIFIEDTIME DESC LIMIT $offset,$limit"
+        ).map { it.toRoutine() }
     }
+
+    /**
+     * Full fetch (up to 300) — used when a search term is provided so that
+     * in-memory substring filtering runs across the entire visible dataset.
+     * Note: results are capped at 300 by the ZCQL limit.
+     */
+    fun findAll(callingUserId: String, onlyMine: Boolean): List<Routine> {
+        val where = buildWhereClause(callingUserId, onlyMine)
+        return db.query(
+            "SELECT * FROM $TABLE$where ORDER BY MODIFIEDTIME DESC LIMIT 0,300"
+        ).map { it.toRoutine() }
+    }
+
+    /**
+     * Total count for the same visibility filter — used to populate [ApiMeta.total]
+     * in paginated (non-search) list responses.
+     */
+    fun count(callingUserId: String, onlyMine: Boolean): Long =
+        db.count(TABLE, buildCondition(callingUserId, onlyMine))
 
     fun findById(id: Long): Routine? =
         db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $id")?.toRoutine()
@@ -66,14 +76,12 @@ class RoutineRepository(
         estimatedMinutes = get("estimatedMinutes")?.toString()?.toIntOrNull() ?: 0,
         tags             = get("tags")?.toString().toStringList(),
         isPublic         = get("isPublic")?.toString()?.toIntOrNull() ?: 0,
-        // Catalyst system columns — never written in toMap()
         createdBy        = get("CREATORID")?.toString() ?: "",
         createdAt        = get("CREATEDTIME")?.toString() ?: "",
         updatedAt        = get("MODIFIEDTIME")?.toString() ?: ""
     )
 
     private fun Routine.toMap(): Map<String, Any> = buildMap {
-        // Only user-defined columns — CREATORID, CREATEDTIME, MODIFIEDTIME are set by Catalyst automatically
         put("name", name)
         put("description", description)
         put("items", items.toJson())
@@ -107,4 +115,13 @@ class RoutineRepository(
             emptyList()
         }
     }
+
+    // ── Private helpers ───────────────────────────────────────────────────────
+
+    private fun buildWhereClause(callingUserId: String, onlyMine: Boolean) =
+        " WHERE ${buildCondition(callingUserId, onlyMine)}"
+
+    private fun buildCondition(callingUserId: String, onlyMine: Boolean) =
+        if (onlyMine) "CREATORID = '${ZcqlSanitizer.sanitize(callingUserId)}'"
+        else "isPublic = 1"
 }

@@ -36,6 +36,10 @@ class BodyMetricService(
                 throw IllegalArgumentException(
                     "Invalid logDate '${req.logDate}'. Expected format: YYYY-MM-DD."
                 )
+            if (LocalDate.parse(req.logDate).isAfter(LocalDate.now()))
+                throw IllegalArgumentException(
+                    "logDate '${req.logDate}' cannot be in the future."
+                )
             val entry = BodyMetricEntry(
                 metricType = req.metricType.trim(),
                 value      = req.value,

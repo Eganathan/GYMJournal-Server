@@ -59,16 +59,27 @@ class BodyMetricRepository(private val db: CatalystDataStoreRepository) {
         ).map { it.toEntry() }
 
     /**
-     * Returns all entries for [userId] matching [metricType].
+     * Returns ALL entries for [userId] matching [metricType], paginating through the
+     * 300-row ZCQL limit in a loop until the full dataset is fetched.
      * Used to cascade-delete all entries when a custom metric definition is removed.
      */
-    fun findAllByType(userId: String, metricType: String): List<BodyMetricEntry> =
-        db.query(
-            "SELECT * FROM $TABLE" +
-            " WHERE CREATORID = '${ZcqlSanitizer.sanitize(userId)}'" +
-            " AND metricType = '${ZcqlSanitizer.sanitize(metricType)}'" +
-            " LIMIT 0,300"
-        ).map { it.toEntry() }
+    fun findAllByType(userId: String, metricType: String): List<BodyMetricEntry> {
+        val uid = ZcqlSanitizer.sanitize(userId)
+        val mt  = ZcqlSanitizer.sanitize(metricType)
+        val all = mutableListOf<BodyMetricEntry>()
+        var offset = 0
+        while (true) {
+            val batch = db.query(
+                "SELECT * FROM $TABLE" +
+                " WHERE CREATORID = '$uid' AND metricType = '$mt'" +
+                " LIMIT $offset,300"
+            ).map { it.toEntry() }
+            all.addAll(batch)
+            if (batch.size < 300) break
+            offset += 300
+        }
+        return all
+    }
 
     fun findById(id: Long): BodyMetricEntry? =
         db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $id")?.toEntry()

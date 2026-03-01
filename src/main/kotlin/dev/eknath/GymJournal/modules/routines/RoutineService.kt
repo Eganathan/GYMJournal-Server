@@ -4,6 +4,10 @@ import dev.eknath.GymJournal.model.domain.Routine
 import dev.eknath.GymJournal.model.dto.*
 import dev.eknath.GymJournal.util.ApiMeta
 import org.springframework.stereotype.Service
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+
+private val DB_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
 @Service
 class RoutineService(
@@ -15,9 +19,14 @@ class RoutineService(
     /**
      * Returns paginated routines visible to [callingUserId].
      *
-     * When [onlyMine] is true returns only the caller's routines (public + private).
-     * Otherwise returns all public routines.
-     * An optional [search] keyword filters by name substring (case-insensitive, in-memory).
+     * Two modes depending on whether a [search] term is provided:
+     *
+     * **No search** — DB-level pagination via ZCQL LIMIT/OFFSET.
+     *   A separate COUNT query produces the accurate [ApiMeta.total].
+     *
+     * **With search** — fetches up to 300 rows (ZCQL cap), applies in-memory
+     *   case-insensitive name filter, then paginates the filtered subset.
+     *   [ApiMeta.total] reflects the post-filter count (capped at 300 raw rows).
      */
     fun listRoutines(
         callingUserId: String,
@@ -26,22 +35,28 @@ class RoutineService(
         page: Int,
         pageSize: Int
     ): Pair<List<RoutineSummaryResponse>, ApiMeta> {
-        var routines = routineRepo.findAll(callingUserId, onlyMine)
-
-        if (!search.isNullOrBlank()) {
-            val term = search.trim()
-            routines = routines.filter { it.name.contains(term, ignoreCase = true) }
-        }
-
-        val total = routines.size.toLong()
         val safePage = page.coerceAtLeast(1)
         val safeSize = pageSize.coerceIn(1, 50)
-        val paged = routines
-            .drop((safePage - 1) * safeSize)
-            .take(safeSize)
-            .map { it.toSummaryResponse() }
 
-        return paged to ApiMeta(page = safePage, pageSize = safeSize, total = total)
+        return if (search.isNullOrBlank()) {
+            // DB-level pagination — accurate total from COUNT query
+            val total  = routineRepo.count(callingUserId, onlyMine)
+            val offset = (safePage - 1) * safeSize
+            val paged  = routineRepo.findPaged(callingUserId, onlyMine, offset, safeSize)
+                .map { it.toSummaryResponse() }
+            paged to ApiMeta(page = safePage, pageSize = safeSize, total = total)
+        } else {
+            // In-memory search — full fetch (capped at 300 by ZCQL), then filter + paginate
+            val term     = search.trim()
+            val filtered = routineRepo.findAll(callingUserId, onlyMine)
+                .filter { it.name.contains(term, ignoreCase = true) }
+            val total    = filtered.size.toLong()
+            val paged    = filtered
+                .drop((safePage - 1) * safeSize)
+                .take(safeSize)
+                .map { it.toSummaryResponse() }
+            paged to ApiMeta(page = safePage, pageSize = safeSize, total = total)
+        }
     }
 
     // ── Get Single ────────────────────────────────────────────────────────────
@@ -65,8 +80,7 @@ class RoutineService(
     // ── Create ────────────────────────────────────────────────────────────────
 
     fun createRoutine(request: CreateRoutineRequest, userId: String): RoutineResponse {
-        val now = java.time.LocalDateTime.now()
-            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+        val now = LocalDateTime.now().format(DB_FMT)
 
         val routine = Routine(
             name             = request.name.trim(),
@@ -135,8 +149,7 @@ class RoutineService(
             throw IllegalAccessException("Routine $id is private and cannot be cloned")
         }
 
-        val now = java.time.LocalDateTime.now()
-            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+        val now = LocalDateTime.now().format(DB_FMT)
 
         val clone = Routine(
             name             = source.name,

@@ -32,6 +32,7 @@ Detailed REST API docs (request/response shapes, params, error codes) live in [`
 | [`apiDocs/metrics.md`](./apiDocs/metrics.md) | All `/api/v1/metrics` endpoints |
 | [`apiDocs/routines.md`](./apiDocs/routines.md) | All `/api/v1/routines` endpoints |
 | [`apiDocs/workouts.md`](./apiDocs/workouts.md) | All `/api/v1/workouts` + exercise history/PBs endpoints |
+| [`apiDocs/media.md`](./apiDocs/media.md) | `POST /api/v1/media/upload` — image/video uploads to Catalyst FileStore |
 
 When adding a new module, add a corresponding `.md` file in `apiDocs/` and link it here.
 
@@ -106,7 +107,8 @@ GymJournal/Server/
     │       │       ├── ExerciseDtos.kt            # Exercise + lookup DTOs
     │       │       ├── BodyMetricDtos.kt          # Metric entry + snapshot + custom def DTOs
     │       │       ├── RoutineDtos.kt             # Routine request/response DTOs
-    │       │       └── WorkoutDtos.kt             # Workout session + set request/response DTOs
+    │       │       ├── WorkoutDtos.kt             # Workout session + set request/response DTOs
+    │       │       └── MediaDtos.kt               # UploadResponse DTO
     │       ├── util/
     │       │   ├── ApiResponse.kt                 # Unified response envelope
     │       │   ├── GlobalExceptionHandler.kt      # @RestControllerAdvice — maps exceptions to ApiResponse
@@ -146,6 +148,10 @@ GymJournal/Server/
     │           │   ├── WorkoutService.kt          # Session assembly, routine pre-population, PB detection
     │           │   ├── WorkoutSessionRepository.kt # WorkoutSessions CRUD
     │           │   └── WorkoutSetRepository.kt    # WorkoutSets CRUD; history/PBs queries
+    │           ├── media/
+    │           │   ├── MediaController.kt         # POST /api/v1/media/upload
+    │           │   ├── MediaService.kt            # Validation (type, size), delegates to repo
+    │           │   └── CatalystFileRepository.kt  # ZCFile → ZCFolder → uploadFile; constructs URL
     │           └── admin/
     │               └── AdminController.kt         # POST /api/v1/admin/seed (one-time data seeder)
     └── test/
@@ -329,6 +335,19 @@ All endpoints require auth. Sessions are private — only the creator can view/e
 | DELETE | `/api/v1/workouts/{sessionId}/sets/{setId}` | Remove a set |
 | GET | `/api/v1/exercises/{id}/history` | Completed EXERCISE sets for this exercise (own, paginated) |
 | GET | `/api/v1/exercises/{id}/pbs` | Personal bests by rep count for this exercise |
+
+### Media Upload
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/v1/media/upload` | Yes | Upload image/video to Catalyst FileStore; returns permanent URL |
+
+**Form fields:** `file` (MultipartFile, required), `folder` (String?, optional: `exercises` \| `routines`; default `misc`)
+**Allowed types:** images (JPEG/PNG/WebP, max 5 MB), videos (MP4/MOV, max 50 MB)
+**FileStore folders** must be pre-created in Catalyst Console: `exercises`, `routines`, `misc`.
+**URL construction:** `https://{projectDomain}/baas/v1/project/{projectId}/filestore/{folderId}/folder/{fileId}/download`
+
+> `ZCFileService` is package-private in the SDK. Use `ZCFile.getInstance().getFolder(name).uploadFile(File)` instead.
 
 ### Admin / Seed
 
@@ -522,7 +541,7 @@ catalyst serve
 - **No framework ORM**: All DB access is via the Catalyst SDK and raw ZCQL strings.
 - **Ownership enforcement**: Services check `entry.userId != userId` before update/delete.
 - **Daily goal**: Hardcoded at `2500 ml` (`DEFAULT_DAILY_GOAL_ML` constant in `WaterIntakeService`).
-- **Error handling**: Centralised in `GlobalExceptionHandler` (`util/GlobalExceptionHandler.kt`). Maps `HttpMessageNotReadableException` → 400, `MethodArgumentNotValidException` → 400, `IllegalArgumentException` → 400, `NoSuchElementException` → 404, `IllegalAccessException` → 403. All error responses use the `ApiResponse` envelope.
+- **Error handling**: Centralised in `GlobalExceptionHandler` (`util/GlobalExceptionHandler.kt`). Maps `HttpMessageNotReadableException` → 400, `MethodArgumentNotValidException` → 400, `IllegalArgumentException` → 400, `NoSuchElementException` → 404, `IllegalAccessException` → 403, `IllegalStateException` → 409, `MaxUploadSizeExceededException` → 413. All error responses use the `ApiResponse` envelope.
 
 ---
 
