@@ -3,6 +3,7 @@ package dev.eknath.GymJournal.modules.exercises
 import com.zc.component.`object`.ZCRowObject
 import dev.eknath.GymJournal.model.domain.Equipment
 import dev.eknath.GymJournal.repository.CatalystDataStoreRepository
+import dev.eknath.GymJournal.util.ZcqlSanitizer
 import org.springframework.stereotype.Repository
 
 private const val TABLE = "Equipment"
@@ -14,17 +15,19 @@ class EquipmentRepository(private val db: CatalystDataStoreRepository) {
         db.query("SELECT * FROM $TABLE ORDER BY displayName ASC").map { it.toEquipment() }
 
     fun findById(id: Long): Equipment? =
-        db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $id")?.toEquipment()
+        db.getRow(TABLE, id)?.toEquipment()
 
     fun save(equipment: Equipment): Equipment {
         val row = db.insert(TABLE, equipment.toMap())
         val rowId = row.get("ROWID")?.toString()?.toLongOrNull()
             ?: row.get("$TABLE.ROWID")?.toString()?.toLongOrNull()
         return if (rowId != null)
-            db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $rowId")?.toEquipment()
-                ?: equipment.copy(id = rowId)
+            db.getRow(TABLE, rowId)?.toEquipment() ?: equipment.copy(id = rowId)
         else equipment
     }
+
+    fun findByDisplayName(name: String): Equipment? =
+        db.queryOne("SELECT * FROM $TABLE WHERE displayName = '${ZcqlSanitizer.sanitize(name)}'")?.toEquipment()
 
     fun count(): Long = db.count(TABLE)
 

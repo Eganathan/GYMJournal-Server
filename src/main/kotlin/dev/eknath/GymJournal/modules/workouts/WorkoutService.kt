@@ -34,13 +34,14 @@ class WorkoutService(
     // ── Start Session ─────────────────────────────────────────────────────────
 
     /**
-     * Creates a new workout session.
+     * Creates a new workout session from a routine template.
      *
-     * If [request.routineId] is provided:
-     *   1. Fetches the routine (must be public or owned by the caller)
-     *   2. Pre-populates WorkoutSets from the routine's items
+     * Every session must reference a valid routine — there is no standalone/free session.
+     * This keeps workout history tied to the programme that produced it and allows clone/share flows.
      *
-     * If [request.routineId] is null → standalone empty session.
+     * Steps:
+     *   1. Fetch the routine (must be public or owned by the caller)
+     *   2. Pre-populate WorkoutSets from the routine's items
      */
     fun startSession(request: StartWorkoutRequest, userId: String): WorkoutSessionResponse {
         // Validate caller-supplied startedAt before touching the DB
@@ -50,25 +51,22 @@ class WorkoutService(
         val nowStr  = now.format(DB_FMT)
         val dateStr = now.format(DATE_FMT)
 
-        val routine = request.routineId?.let { rid ->
-            routineService.findById(rid)?.also { r ->
-                if (r.isPublic != 1 && r.createdBy != userId) {
-                    throw IllegalAccessException("Routine $rid is private")
-                }
-            } ?: throw NoSuchElementException("Routine with id '$rid' not found")
-        }
+        val routine = routineService.findById(request.routineId)?.also { r ->
+            if (r.isPublic != 1 && r.createdBy != userId) {
+                throw IllegalAccessException("Routine ${request.routineId} is private")
+            }
+        } ?: throw NoSuchElementException("Routine with id '${request.routineId}' not found")
 
         val startedAt = request.startedAt
             ?.replace("T", " ")
             ?: nowStr
 
-        val sessionName = request.name?.trim()
-            ?: if (routine != null) "${routine.name} - $dateStr" else "Free Workout - $dateStr"
+        val sessionName = request.name?.trim() ?: "${routine.name} - $dateStr"
 
         val session = WorkoutSession(
             userId      = userId,
-            routineId   = routine?.id ?: 0L,
-            routineName = routine?.name ?: "",
+            routineId   = routine.id!!,
+            routineName = routine.name,
             name        = sessionName,
             status      = "IN_PROGRESS",
             startedAt   = startedAt,
@@ -81,7 +79,7 @@ class WorkoutService(
         val saved = sessionRepo.save(session)
 
         // Pre-populate sets from routine items
-        if (routine != null && saved.id != null) {
+        if (saved.id != null) {
             // Resolve current exercise names for all EXERCISE items in one pass.
             // This ensures renamed exercises show their current name in new sessions
             // while completed historical sets retain the name they were logged under.
@@ -457,7 +455,7 @@ class WorkoutService(
         return WorkoutSessionResponse(
             id          = session.id!!,
             name        = session.name,
-            routineId   = session.routineId,
+            routineId   = session.routineId,   // always a real routine ID
             routineName = session.routineName,
             status      = session.status,
             startedAt   = session.startedAt.replace(" ", "T"),

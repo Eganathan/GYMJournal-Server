@@ -16,7 +16,7 @@ class WorkoutSessionRepository(
     // ── Queries ───────────────────────────────────────────────────────────────
 
     fun findById(id: Long): WorkoutSession? =
-        db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $id")?.toSession()
+        db.getRow(TABLE, id)?.toSession()
 
     /**
      * Returns the calling user's sessions, ordered by [startedAt] DESC (actual workout

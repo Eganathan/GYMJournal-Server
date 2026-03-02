@@ -49,7 +49,7 @@ class CustomMetricDefRepository(private val db: CatalystDataStoreRepository) {
     // ---------------------------------------------------------------------------
 
     private fun findById(id: Long): CustomMetricDef? =
-        db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $id")?.toDef()
+        db.getRow(TABLE, id)?.toDef()
 
     private fun ZCRowObject.toDef() = CustomMetricDef(
         id        = get("ROWID")?.toString()?.toLongOrNull(),

@@ -16,7 +16,7 @@ class WorkoutSetRepository(
     // ── Queries ───────────────────────────────────────────────────────────────
 
     fun findById(id: Long): WorkoutSet? =
-        db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $id")?.toSet()
+        db.getRow(TABLE, id)?.toSet()
 
     /**
      * All sets belonging to a session, ordered by slot then set number.

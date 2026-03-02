@@ -82,7 +82,7 @@ class BodyMetricRepository(private val db: CatalystDataStoreRepository) {
     }
 
     fun findById(id: Long): BodyMetricEntry? =
-        db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $id")?.toEntry()
+        db.getRow(TABLE, id)?.toEntry()
 
     // ---------------------------------------------------------------------------
     // Mutations

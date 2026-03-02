@@ -30,7 +30,7 @@ class WaterIntakeRepository(private val db: CatalystDataStoreRepository) {
         ).map { it.toEntry() }
 
     fun findById(id: Long): WaterIntakeEntry? =
-        db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $id")?.toEntry()
+        db.getRow(TABLE, id)?.toEntry()
 
     fun save(entry: WaterIntakeEntry): WaterIntakeEntry {
         val row = db.insert(TABLE, entry.toMap())

@@ -1,6 +1,6 @@
 # Workouts API
 
-The Workouts API handles real-time workout session logging. A **WorkoutSession** is one execution of a routine (or a free-form workout). During the session, the user logs individual sets — one row per exercise set, rest period, or cardio block — as they complete them. When the session is finished, calling `/complete` locks it and auto-detects personal bests.
+The Workouts API handles real-time workout session logging. A **WorkoutSession** is one execution of a routine. Every session must be linked to a routine — there is no free-form / standalone session. During the session, the user logs individual sets — one row per exercise set, rest period, or cardio block — as they complete them. When the session is finished, calling `/complete` locks it and auto-detects personal bests.
 
 **Base path:** `/api/v1/workouts` (sessions and sets)
 **Secondary path:** `/api/v1/exercises/{id}/history` and `/api/v1/exercises/{id}/pbs` (exercise-scoped queries)
@@ -31,10 +31,14 @@ Once a session is `COMPLETED`, sets **cannot be added, modified, or deleted**. A
 | `REST` | A timed rest period |
 | `CARDIO` | A cardio block with time and optional distance |
 
-### Starting from a routine vs. freestyle
+### Starting a session
 
-- **From a routine:** Provide `routineId` in `POST /api/v1/workouts`. The session is pre-populated with `WorkoutSet` rows — one per planned set in each `EXERCISE` item, plus one row per `REST` and `CARDIO` item. `plannedReps` and `plannedWeightKg` are filled from the routine; `actualReps` starts as `null` (not yet done).
-- **Freestyle:** Omit `routineId`. Session starts empty; the user builds it by calling `POST /api/v1/workouts/{id}/sets` for each exercise.
+Every session must start from a routine — `routineId` is required in `POST /api/v1/workouts`. The session is pre-populated with `WorkoutSet` rows derived from the routine's items:
+- One row per planned set in each `EXERCISE` item (`plannedReps` and `plannedWeightKg` come from the routine; `actualReps` starts as `null` = not yet done).
+- One row per `REST` item (with `durationSeconds` pre-filled).
+- One row per `CARDIO` item.
+
+After the session is started, the user can still add ad-hoc sets via `POST /api/v1/workouts/{id}/sets` (for unplanned exercises or extra sets beyond the routine plan).
 
 ### Personal best (PB) detection
 

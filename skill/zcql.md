@@ -322,12 +322,38 @@ val q = "SELECT * FROM Exercises WHERE CREATORID = '${ZcqlSanitizer.sanitize(use
 ### CatalystDataStoreRepository
 
 ```kotlin
-db.query("SELECT ...")                   // → List<ZCRowObject>
-db.queryOne("SELECT ... WHERE ROWID = X") // → ZCRowObject?
-db.insert(TABLE, map)                     // → ZCRowObject (extract ROWID for read-after-write)
-db.update(TABLE, rowId, map)              // → Unit (MODIFIEDTIME auto-updated)
-db.delete(TABLE, rowId)                   // → Unit
-db.count(TABLE)                          // → Long
+db.query("SELECT ...")       // → List<ZCRowObject>  (ZCQL — for lists / filtered queries)
+db.queryOne("SELECT ...")    // → ZCRowObject?        (ZCQL — do NOT use for findById, see below)
+db.insert(TABLE, map)        // → ZCRowObject         (extract ROWID for read-after-write)
+db.update(TABLE, rowId, map) // → Unit                (MODIFIEDTIME auto-updated)
+db.delete(TABLE, rowId)      // → Unit
+db.count(TABLE)              // → Long
+db.getRow(TABLE, rowId)      // → ZCRowObject?        (ZCObject — ALWAYS use for findById)
+```
+
+### ⚠️ CRITICAL: Use getRow() for findById — NOT queryOne
+
+**Never use `db.queryOne("SELECT * FROM T WHERE ROWID = x")` for single-row lookup.**
+
+In Catalyst AppSail (development and production), ZCQL reads can silently fail while ZCObject writes
+succeed — a bug observed in practice:
+
+- `db.insert()` (ZCObject path) → row IS written to the DataStore ✓
+- `db.queryOne("SELECT * FROM T WHERE ROWID = x")` (ZCQL path) → returns null silently ✗
+- `db.getRow(TABLE, rowId)` (ZCObject path) → returns the row correctly ✓
+
+Root cause is that `ZCObject.getInstance()` (used by `getTableInstance(name).getRow(rowId)`) uses the
+same SDK context as insert/update/delete. ZCQL (`ZCQL.getInstance()`) uses a different context path
+that can fail when the ZCProject config is not fully propagated.
+
+```kotlin
+// ✅ Correct — always use getRow for findById
+fun findById(id: Long): Routine? =
+    db.getRow(TABLE, id)?.toRoutine()
+
+// ❌ Wrong — ZCQL may fail silently, returning null even when the row exists
+fun findById(id: Long): Routine? =
+    db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $id")?.toRoutine()
 ```
 
 ### Read-after-write pattern (always do this after insert)
@@ -336,7 +362,7 @@ db.count(TABLE)                          // → Long
 val row = db.insert(TABLE, data)
 val rowId = row.get("ROWID")?.toString()?.toLongOrNull()
     ?: row.get("$TABLE.ROWID")?.toString()?.toLongOrNull()
-return if (rowId != null) findById(rowId) ?: fallback else fallback
+return if (rowId != null) db.getRow(TABLE, rowId)?.toDomain() ?: fallback.copy(id = rowId) else fallback
 ```
 
 ### JOIN query pattern
@@ -401,3 +427,5 @@ Set this in the AppSail function's environment variables to ensure V2 parser (JO
 | 12 | `IS`/`IS NOT` only for NULL | Can't use `= NULL` or `!= NULL` |
 | 13 | No RIGHT JOIN / CROSS JOIN | Only INNER and LEFT supported |
 | 14 | V2 parser must be enabled | Set `ZOHO_CATALYST_ZCQL_PARSER=V2` in env |
+| 15 | **ZCQL reads can silently fail** even when writes (ZCObject) work | Use `db.getRow(TABLE, id)` (ZCObject) for `findById`, never `db.queryOne("WHERE ROWID = x")` |
+| 16 | `COUNT(*)` not supported in ZCQL V2 | Use `COUNT(ROWID)` instead |

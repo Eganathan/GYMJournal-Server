@@ -50,7 +50,7 @@ class RoutineRepository(
         db.count(TABLE, buildCondition(callingUserId, onlyMine))
 
     fun findById(id: Long): Routine? =
-        db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $id")?.toRoutine()
+        db.getRow(TABLE, id)?.toRoutine()
 
     // ── Mutations ─────────────────────────────────────────────────────────────
 

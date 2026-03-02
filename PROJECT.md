@@ -176,7 +176,7 @@ Controller  →  Service  →  Module Repository  →  CatalystDataStoreReposito
 - **Controller**: Handles HTTP, validation, extracts `currentUserId()`, returns `ApiResponse<T>`.
 - **Service**: Business logic — computes summaries, enforces ownership, defaults dates/times.
 - **Repository**: Module-specific DataStore queries using ZCQL (sanitized via `ZcqlSanitizer`).
-- **`CatalystDataStoreRepository`**: Generic base — `query`, `queryOne`, `insert`, `update`, `delete`, `count`.
+- **`CatalystDataStoreRepository`**: Generic base — `query`, `queryOne`, `insert`, `update`, `delete`, `count`, `getRow`.
 
 ### Authentication
 
@@ -209,6 +209,8 @@ CORS is handled entirely by **ZGS** (the gateway in front of AppSail) — not by
 
 - Zoho Catalyst DataStore is a NoSQL-like store queried with **ZCQL** (a SQL subset). See `skill/zcql.md` for the full reference.
 - **ZCQL V2** is live on production (since April 2025). INNER JOIN and LEFT JOIN are supported (up to 4 per query). Set env var `ZOHO_CATALYST_ZCQL_PARSER=V2` in AppSail function config.
+- **`COUNT(*)`** is not supported in ZCQL V2. Use `COUNT(ROWID)` instead — `ROWID` is always present on every table. `CatalystDataStoreRepository.count()` already does this correctly.
+- **`getRow(tableName, rowId)`** — **always use this for single-row lookups** (`findById`). It uses `ZCObject.getTableInstance(name).getRow(rowId)` (the same ZCObject path as writes). `queryOne("WHERE ROWID = x")` silently returns null in AppSail even when the row exists (ZCQL and ZCObject use different SDK context paths). All repositories use `db.getRow(TABLE, id)` for `findById`.
 - There are **no bind parameters** in ZCQL — all user input is sanitized manually via `ZcqlSanitizer` (escapes single quotes, strips semicolons).
 - **Tables are created via the Catalyst Console UI only** — ZCQL has no DDL. Always provide exact column specs (name, type, mandatory, unique) when a new table is needed.
 - **System columns** on every table (never create manually): `ROWID` (BigInt, auto PK), `CREATORID` (Var Char, auto user), `CREATEDTIME` (DateTime, auto), `MODIFIEDTIME` (DateTime, auto-updated on write).
@@ -324,7 +326,7 @@ All endpoints require auth. Sessions are private — only the creator can view/e
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/v1/workouts` | Start session (`routineId?`, `name?`, `startedAt?`) |
+| POST | `/api/v1/workouts` | Start session from routine (`routineId` required, `name?`, `startedAt?`) |
 | GET | `/api/v1/workouts` | List own sessions (`?status=IN_PROGRESS|COMPLETED`, `?page=`, `?pageSize=`) |
 | GET | `/api/v1/workouts/{id}` | Full session with sets grouped by `orderInSession` |
 | PATCH | `/api/v1/workouts/{id}` | Update session name/notes |
@@ -451,7 +453,7 @@ Computed metrics (`bmi`, `smiComputed`) are never stored — derived server-side
 | Column | Type | Mandatory | Notes |
 |---|---|---|---|
 | `userId` | Var Char | ✓ | Catalyst user ID (explicit column for ZCQL queries) |
-| `routineId` | BigInt | ✓ | FK → `Routines.ROWID`; `0` = standalone session |
+| `routineId` | BigInt | ✓ | FK → `Routines.ROWID`. Every session must reference a routine — there is no standalone/free session. |
 | `routineName` | Var Char (100) | — | Denormalised; empty if standalone |
 | `name` | Var Char (100) | ✓ | e.g. "Push Day - Mon 3 Mar" |
 | `status` | Var Char (20) | ✓ | `IN_PROGRESS` \| `COMPLETED` |

@@ -1,16 +1,18 @@
 package dev.eknath.GymJournal.model.domain
 
 /**
- * A workout session — one execution instance of a routine (or a free-form session).
+ * A workout session — always linked to a routine template.
+ * Every session must reference a valid [Routine.id]; there is no standalone/free session.
+ * This allows clone/share flows and keeps workout history tied to the programme that produced it.
  *
  * Stored in the `WorkoutSessions` DataStore table.
- * [routineId] = 0 means this is a standalone session (no template).
+ * The DataStore [routineId] column is a BigInt FK → Routines.ROWID (always a real routine ID).
  */
 data class WorkoutSession(
     val id: Long? = null,
     val userId: String,                  // explicit column for ZCQL queries; mirrors CREATORID
-    val routineId: Long,                 // 0 = standalone free workout
-    val routineName: String,             // denormalised for display; "" if standalone
+    val routineId: Long,                 // always set — every session belongs to a routine
+    val routineName: String,             // denormalised for display
     val name: String,
     val status: String,                  // "IN_PROGRESS" | "COMPLETED"
     val startedAt: String,               // yyyy-MM-dd HH:mm:ss

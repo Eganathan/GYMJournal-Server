@@ -55,7 +55,10 @@ class ExerciseRepository(
     }
 
     fun findById(id: Long): Exercise? =
-        db.queryOne("SELECT * FROM $TABLE WHERE ROWID = $id")?.toExercise()
+        db.getRow(TABLE, id)?.toExercise()
+
+    fun findByName(name: String): Exercise? =
+        db.queryOne("SELECT * FROM $TABLE WHERE name = '${ZcqlSanitizer.sanitize(name)}'")?.toExercise()
 
     // ---------------------------------------------------------------------------
     // Mutations

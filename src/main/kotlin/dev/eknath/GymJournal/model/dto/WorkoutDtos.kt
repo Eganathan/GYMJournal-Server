@@ -7,14 +7,14 @@ import jakarta.validation.constraints.Size
 // ── Session request DTOs ──────────────────────────────────────────────────────
 
 /**
- * Body for POST /api/v1/workouts — starts a new session.
+ * Body for POST /api/v1/workouts — starts a new session from a routine template.
  *
- * [routineId] = null → standalone free workout (no template).
- * [name] = null → auto-generated as "<routineName> - <date>" or "Free Workout - <date>".
+ * Every session must be backed by a routine (routineId is required).
+ * [name] = null → auto-generated as "<routineName> - <date>".
  * [startedAt] = null → server uses current time.
  */
 data class StartWorkoutRequest(
-    val routineId: Long? = null,
+    val routineId: Long,                // required — every session must reference a routine
     @field:Size(max = 100)
     val name: String? = null,
     val startedAt: String? = null       // ISO-8601; null = now

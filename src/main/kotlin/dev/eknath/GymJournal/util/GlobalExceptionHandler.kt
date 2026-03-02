@@ -8,9 +8,15 @@ import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.multipart.MaxUploadSizeExceededException
+import java.util.logging.Level
+import java.util.logging.Logger
 
 @RestControllerAdvice
 class GlobalExceptionHandler {
+
+    companion object {
+        private val LOGGER = Logger.getLogger(GlobalExceptionHandler::class.java.name)
+    }
 
     // Malformed or missing JSON request body
     @ExceptionHandler(HttpMessageNotReadableException::class)
@@ -59,4 +65,16 @@ class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.PAYLOAD_TOO_LARGE)
     fun handleTooLarge(ex: MaxUploadSizeExceededException): ApiResponse<Nothing> =
         ApiResponse.error("FILE_TOO_LARGE", "File exceeds the maximum allowed upload size (100 MB)")
+
+    // Catch-all — surfaces the raw error message so DataStore/SDK failures are diagnosable.
+    // The full stack trace is logged at SEVERE; the response includes the exception class + message.
+    @ExceptionHandler(Throwable::class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    fun handleUnexpected(ex: Throwable): ApiResponse<Nothing> {
+        LOGGER.log(Level.SEVERE, "[UnhandledException] ${ex::class.java.simpleName}: ${ex.message}", ex)
+        return ApiResponse.error(
+            "SERVER_ERROR",
+            "${ex::class.java.simpleName}: ${ex.message ?: "Unexpected error"}"
+        )
+    }
 }
