@@ -17,8 +17,15 @@ import java.time.format.DateTimeParseException
 private val DB_FMT   = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 private val DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
-/** Regex for ISO-8601 datetimes accepted by the API (e.g. "2026-03-01T09:00:00"). */
-private val ISO_DT_REGEX = Regex("""^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$""")
+/**
+ * Regex for ISO-8601 datetimes accepted by the API.
+ * Accepts:
+ *   - "2026-03-01T09:00:00"           (bare, no timezone)
+ *   - "2026-03-01T09:00:00.176Z"      (JS toISOString() format — ms + Z)
+ *   - "2026-03-01T09:00:00Z"          (Z only, no ms)
+ *   - "2026-03-01T09:00:00+05:30"     (explicit offset)
+ */
+private val ISO_DT_REGEX = Regex("""^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$""")
 
 /** Accepted values for WorkoutSet.itemType. */
 private val VALID_ITEM_TYPES = setOf("EXERCISE", "REST", "CARDIO")
@@ -51,14 +58,17 @@ class WorkoutService(
         val nowStr  = now.format(DB_FMT)
         val dateStr = now.format(DATE_FMT)
 
-        val routine = routineService.findById(request.routineId)?.also { r ->
+        val routineId = request.routineId.toLongOrNull()
+            ?: throw IllegalArgumentException("Invalid routineId: '${request.routineId}'")
+
+        val routine = routineService.findById(routineId)?.also { r ->
             if (r.isPublic != 1 && r.createdBy != userId) {
-                throw IllegalAccessException("Routine ${request.routineId} is private")
+                throw IllegalAccessException("Routine $routineId is private")
             }
-        } ?: throw NoSuchElementException("Routine with id '${request.routineId}' not found")
+        } ?: throw NoSuchElementException("Routine with id '$routineId' not found")
 
         val startedAt = request.startedAt
-            ?.replace("T", " ")
+            ?.let { normalizeToDbDatetime(it) }
             ?: nowStr
 
         val sessionName = request.name?.trim() ?: "${routine.name} - $dateStr"
@@ -96,13 +106,18 @@ class WorkoutService(
                         val resolvedName = exerciseNameCache[item.exerciseId]
                             ?: item.exerciseName
                             ?: ""
+                        // Only pass exerciseId if the exercise was found in the DB.
+                        // Catalyst enforces a FK constraint on WorkoutSets.exerciseId → Exercises.ROWID;
+                        // passing a stale/non-existent ID causes ZCServerException: Invalid Foreign key value.
+                        // Falling back to null (with exerciseName intact) is safe — the FK column is non-mandatory.
+                        val resolvedExerciseId = item.exerciseId?.takeIf { exerciseNameCache[it] != null }
                         val setCount = item.sets?.coerceAtLeast(1) ?: 1
                         repeat(setCount) { setIdx ->
                             setRepo.save(
                                 WorkoutSet(
                                     sessionId       = saved.id,
                                     userId          = userId,
-                                    exerciseId      = item.exerciseId ?: 0L,
+                                    exerciseId      = resolvedExerciseId,  // null when exercise not in DB
                                     exerciseName    = resolvedName,
                                     itemType        = "EXERCISE",
                                     orderInSession  = order,
@@ -126,7 +141,7 @@ class WorkoutService(
                             WorkoutSet(
                                 sessionId       = saved.id,
                                 userId          = userId,
-                                exerciseId      = 0L,
+                                exerciseId      = null,   // REST has no exercise; FK col is non-mandatory
                                 exerciseName    = "",
                                 itemType        = "REST",
                                 orderInSession  = order,
@@ -149,7 +164,7 @@ class WorkoutService(
                             WorkoutSet(
                                 sessionId       = saved.id,
                                 userId          = userId,
-                                exerciseId      = 0L,
+                                exerciseId      = null,   // CARDIO has no FK exercise; FK col is non-mandatory
                                 exerciseName    = item.cardioName ?: "Cardio",
                                 itemType        = "CARDIO",
                                 orderInSession  = order,
@@ -235,11 +250,13 @@ class WorkoutService(
         if (existing.userId != userId) throw IllegalAccessException("Session $id does not belong to this user")
         if (existing.status == "COMPLETED") return buildSessionResponse(existing)
 
+        // Fetch all sets once — reused for the guard check and PB detection
+        val allSets = setRepo.findBySession(id, userId)
+
         // Guard: require at least one logged exercise set unless force=true
         if (!force) {
-            val sets = setRepo.findBySession(id, userId)
-            val exerciseSets = sets.filter { it.itemType == "EXERCISE" }
-            if (exerciseSets.isNotEmpty() && exerciseSets.none { it.actualReps > 0 }) {
+            val exerciseSetsForGuard = allSets.filter { it.itemType == "EXERCISE" }
+            if (exerciseSetsForGuard.isNotEmpty() && exerciseSetsForGuard.none { it.actualReps > 0 }) {
                 throw IllegalArgumentException(
                     "No exercise sets have been logged for this session. " +
                     "Log at least one set or pass ?force=true to complete anyway."
@@ -251,11 +268,11 @@ class WorkoutService(
         val completed = existing.copy(status = "COMPLETED", completedAt = nowStr)
         sessionRepo.update(id, completed)
 
-        // PB detection
-        val sets          = setRepo.findBySession(id, userId)
-        val exerciseSets  = sets.filter { it.itemType == "EXERCISE" && it.actualReps > 0 }
+        // PB detection — use the pre-fetched set list (snapshot taken before mark-complete)
+        val exerciseSets  = allSets.filter { it.itemType == "EXERCISE" && it.actualReps > 0 }
 
         exerciseSets.groupBy { it.exerciseId }.forEach { (exerciseId, sessionExerciseSets) ->
+            if (exerciseId == null) return@forEach   // shouldn't happen for EXERCISE sets, but guard anyway
             val history = setRepo.findExerciseHistory(userId, exerciseId)
                 .filter { it.sessionId != id }
 
@@ -319,12 +336,12 @@ class WorkoutService(
         validateWeightFormat(request.plannedWeightKg, "plannedWeightKg")
         validateWeightFormat(request.actualWeightKg, "actualWeightKg")
 
-        val completedAtDb = request.completedAt?.replace("T", " ") ?: ""
+        val completedAtDb = request.completedAt?.let { normalizeToDbDatetime(it) } ?: ""
 
         val set = WorkoutSet(
             sessionId       = sessionId,
             userId          = userId,
-            exerciseId      = request.exerciseId,
+            exerciseId      = request.exerciseId.takeIf { it != 0L },  // 0 means "none" → null (FK non-mandatory)
             exerciseName    = request.exerciseName.trim(),
             itemType        = itemType,
             orderInSession  = request.orderInSession,
@@ -360,7 +377,7 @@ class WorkoutService(
         request.plannedWeightKg?.let { validateWeightFormat(it, "plannedWeightKg") }
         request.actualWeightKg?.let  { validateWeightFormat(it, "actualWeightKg") }
 
-        val completedAtDb = request.completedAt?.replace("T", " ") ?: existing.completedAt
+        val completedAtDb = request.completedAt?.let { normalizeToDbDatetime(it) } ?: existing.completedAt
 
         val updated = existing.copy(
             actualReps      = request.actualReps      ?: existing.actualReps,
@@ -445,7 +462,7 @@ class WorkoutService(
                 SessionItemGroup(
                     orderInSession = order,
                     itemType       = first.itemType,
-                    exerciseId     = first.exerciseId,
+                    exerciseId     = first.exerciseId?.toString(),
                     exerciseName   = first.exerciseName,
                     sets           = setsInSlot.sortedBy { it.setNumber }.map { it.toResponse() }
                 )
@@ -453,9 +470,9 @@ class WorkoutService(
             .sortedBy { it.orderInSession }
 
         return WorkoutSessionResponse(
-            id          = session.id!!,
+            id          = session.id!!.toString(),
             name        = session.name,
-            routineId   = session.routineId,   // always a real routine ID
+            routineId   = session.routineId.toString(),
             routineName = session.routineName,
             status      = session.status,
             startedAt   = session.startedAt.replace(" ", "T"),
@@ -468,9 +485,9 @@ class WorkoutService(
     }
 
     private fun WorkoutSession.toSummaryResponse() = WorkoutSessionSummaryResponse(
-        id              = id!!,
+        id              = id!!.toString(),
         name            = name,
-        routineId       = routineId,
+        routineId       = routineId.toString(),
         routineName     = routineName,
         status          = status,
         startedAt       = startedAt.replace(" ", "T"),
@@ -490,9 +507,9 @@ class WorkoutService(
     }
 
     private fun WorkoutSet.toResponse() = WorkoutSetResponse(
-        id              = id!!,
-        sessionId       = sessionId,
-        exerciseId      = exerciseId,
+        id              = id!!.toString(),
+        sessionId       = sessionId.toString(),
+        exerciseId      = exerciseId?.toString(),
         exerciseName    = exerciseName,
         itemType        = itemType,
         orderInSession  = orderInSession,
@@ -511,14 +528,26 @@ class WorkoutService(
 
     // ── Validation helpers ────────────────────────────────────────────────────
 
-    /** Throws [IllegalArgumentException] if [value] is not in ISO-8601 format (YYYY-MM-DDTHH:MM:SS). */
+    /** Throws [IllegalArgumentException] if [value] is not in an accepted ISO-8601 datetime format. */
     private fun validateDatetimeFormat(value: String, fieldName: String) {
         if (!ISO_DT_REGEX.matches(value)) {
             throw IllegalArgumentException(
-                "'$fieldName' must be in ISO-8601 format: YYYY-MM-DDTHH:MM:SS (e.g. 2026-03-01T09:00:00)"
+                "'$fieldName' must be in ISO-8601 format: YYYY-MM-DDTHH:MM:SS (e.g. 2026-03-01T09:00:00). " +
+                "Milliseconds and timezone suffix (Z / +HH:MM) are also accepted."
             )
         }
     }
+
+    /**
+     * Normalises an accepted ISO-8601 datetime string to the DB storage format `YYYY-MM-DD HH:MM:SS`.
+     * Strips optional milliseconds and timezone suffix before replacing 'T' with a space.
+     * Examples:
+     *   "2026-03-07T10:25:49.176Z" → "2026-03-07 10:25:49"
+     *   "2026-03-07T10:25:49Z"     → "2026-03-07 10:25:49"
+     *   "2026-03-07T10:25:49"      → "2026-03-07 10:25:49"
+     */
+    private fun normalizeToDbDatetime(isoStr: String): String =
+        isoStr.take(19).replace("T", " ")
 
     /** Throws [IllegalArgumentException] if [value] cannot be parsed as a non-negative decimal number. */
     private fun validateWeightFormat(value: String, fieldName: String) {

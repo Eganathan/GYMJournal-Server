@@ -22,14 +22,14 @@ class BodyMetricRepository(private val db: CatalystDataStoreRepository) {
     fun findByDate(userId: String, date: String): List<BodyMetricEntry> =
         db.query(
             "SELECT * FROM $TABLE" +
-            " WHERE CREATORID = '${ZcqlSanitizer.sanitize(userId)}'" +
+            " WHERE userId = '${ZcqlSanitizer.sanitize(userId)}'" +
             " AND logDate = '${ZcqlSanitizer.sanitize(date)}'" +
             " ORDER BY metricType ASC"
         ).map { it.toEntry() }
 
     /**
      * Returns history for a single [metricType] within a date range, sorted ASC.
-     * Uses 4 WHERE conditions (CREATORID + metricType + startDate + endDate) —
+     * Uses 4 WHERE conditions (userId + metricType + startDate + endDate) —
      * this is at the ZCQL 5-condition limit. Do NOT add a 5th condition here.
      */
     fun findByType(
@@ -40,7 +40,7 @@ class BodyMetricRepository(private val db: CatalystDataStoreRepository) {
     ): List<BodyMetricEntry> =
         db.query(
             "SELECT * FROM $TABLE" +
-            " WHERE CREATORID = '${ZcqlSanitizer.sanitize(userId)}'" +
+            " WHERE userId = '${ZcqlSanitizer.sanitize(userId)}'" +
             " AND metricType = '${ZcqlSanitizer.sanitize(metricType)}'" +
             " AND logDate >= '${ZcqlSanitizer.sanitize(startDate)}'" +
             " AND logDate <= '${ZcqlSanitizer.sanitize(endDate)}'" +
@@ -54,7 +54,7 @@ class BodyMetricRepository(private val db: CatalystDataStoreRepository) {
     fun findRecent(userId: String): List<BodyMetricEntry> =
         db.query(
             "SELECT * FROM $TABLE" +
-            " WHERE CREATORID = '${ZcqlSanitizer.sanitize(userId)}'" +
+            " WHERE userId = '${ZcqlSanitizer.sanitize(userId)}'" +
             " ORDER BY logDate DESC LIMIT 0,300"
         ).map { it.toEntry() }
 
@@ -71,7 +71,7 @@ class BodyMetricRepository(private val db: CatalystDataStoreRepository) {
         while (true) {
             val batch = db.query(
                 "SELECT * FROM $TABLE" +
-                " WHERE CREATORID = '$uid' AND metricType = '$mt'" +
+                " WHERE userId = '$uid' AND metricType = '$mt'" +
                 " LIMIT $offset,300"
             ).map { it.toEntry() }
             all.addAll(batch)
@@ -111,13 +111,15 @@ class BodyMetricRepository(private val db: CatalystDataStoreRepository) {
         logDate    = get("logDate")?.toString() ?: "",
         notes      = get("notes")?.toString() ?: "",
         // Catalyst system columns — read-only
-        createdBy  = get("CREATORID")?.toString() ?: "",
+        createdBy  = get("userId")?.toString() ?: "",
         createdAt  = get("CREATEDTIME")?.toString() ?: "",
         updatedAt  = get("MODIFIEDTIME")?.toString() ?: ""
     )
 
     private fun BodyMetricEntry.toMap(): Map<String, Any> = buildMap {
-        // Only user-defined columns — CREATORID, CREATEDTIME, MODIFIEDTIME are set by Catalyst automatically
+        // userId stored explicitly — CREATORID is unreliable in AppSail (app credentials, not user)
+        // CREATEDTIME, MODIFIEDTIME still auto-set by Catalyst
+        put("userId", createdBy)
         put("metricType", metricType)
         put("value", value)
         put("unit", unit)

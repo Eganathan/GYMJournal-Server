@@ -40,7 +40,7 @@ class CatalystAuthFilter : OncePerRequestFilter() {
         response: HttpServletResponse,
         chain: FilterChain
     ) {
-        val userId = request.getHeader("x-zc-user-id")
+        val userId = request.getHeader("x-zc-user-id")?.takeIf { it.isNotBlank() }
 
         if (userId == null) {
             LOGGER.log(Level.INFO, "[CatalystAuth] Unauthenticated request → ${request.requestURI}")

@@ -2,7 +2,7 @@
 
 Body Metrics lets users log and track physical measurements over time — body weight, body composition (InBody), limb measurements, blood work, and fully custom user-defined metrics.
 
-**Base path:** `/api/v1/metrics`
+**Base path:** `/api/v1/body-metrics`
 **Auth required:** Yes — all endpoints require authentication.
 **Data visibility:** Private — each user can only read and modify their own metric entries.
 
@@ -14,7 +14,7 @@ Body Metrics lets users log and track physical measurements over time — body w
 
 Each measurement is stored as a flat record: `(metricType, value, unit, logDate)`.
 
-The client should collect all the measurements the user fills in for a given date and submit them together in **one batch call** — `POST /api/v1/metrics/entries`. This keeps the log form submit simple and atomic.
+The client should collect all the measurements the user fills in for a given date and submit them together in **one batch call** — `POST /api/v1/body-metrics/entries`. This keeps the log form submit simple and atomic.
 
 ### Metric types
 
@@ -26,7 +26,7 @@ A `metricType` is a string key that identifies what is being measured. There are
 ```
 metricKey = "custom_" + label.lowercase().replace(/[^a-z0-9]/g, "_")
 ```
-Create custom definitions via `POST /api/v1/metrics/custom` before logging entries of that type.
+Create custom definitions via `POST /api/v1/body-metrics/custom` before logging entries of that type.
 
 ### Computed metrics
 
@@ -39,17 +39,18 @@ The snapshot response includes them automatically when the source values (`weigh
 ### Typical client flow
 
 ```
-App launch          → GET /api/v1/metrics/snapshot            (populate dashboard cards)
-Open history chart  → GET /api/v1/metrics/{type}/history      (populate trend graph)
-Open log form       → GET /api/v1/metrics/entries?date=       (pre-fill existing values + collect entry IDs)
-User submits form   → POST /api/v1/metrics/entries            (batch save all filled fields)
-User edits one row  → GET /api/v1/metrics/entries?date=       (get the entry `id` for that date)
-                      PUT /api/v1/metrics/entries/{id}        (send only the changed fields)
-User deletes one    → DELETE /api/v1/metrics/entries/{id}     (id obtained same way as PUT)
-Manage custom types → GET/POST/DELETE /api/v1/metrics/custom
+App launch          → GET /api/v1/body-metrics/snapshot            (populate dashboard cards)
+Health insights     → GET /api/v1/body-metrics/insights?gender=    (health warnings / "stats at a glance")
+Open history chart  → GET /api/v1/body-metrics/{type}/history      (populate trend graph)
+Open log form       → GET /api/v1/body-metrics/entries?date=       (pre-fill existing values + collect entry IDs)
+User submits form   → POST /api/v1/body-metrics/entries            (batch save all filled fields)
+User edits one row  → GET /api/v1/body-metrics/entries?date=       (get the entry `id` for that date)
+                      PUT /api/v1/body-metrics/entries/{id}        (send only the changed fields)
+User deletes one    → DELETE /api/v1/body-metrics/entries/{id}     (id obtained same way as PUT)
+Manage custom types → GET/POST/DELETE /api/v1/body-metrics/custom
 ```
 
-> **Important:** `PUT` and `DELETE` both require the numeric entry `id`. You **must** call `GET /api/v1/metrics/entries?date=YYYY-MM-DD` first to obtain the `id` for the specific entry you want to modify. Do not construct or guess IDs.
+> **Important:** `PUT` and `DELETE` both require the numeric entry `id`. You **must** call `GET /api/v1/body-metrics/entries?date=YYYY-MM-DD` first to obtain the `id` for the specific entry you want to modify. Do not construct or guess IDs.
 
 ---
 
@@ -159,20 +160,20 @@ The backend accepts any string as `metricType` but these are the known built-in 
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/v1/metrics/entries` | Batch log metric entries |
-| GET | `/api/v1/metrics/entries?date=` | All entries for a date |
-| PUT | `/api/v1/metrics/entries/{id}` | Update an entry |
-| DELETE | `/api/v1/metrics/entries/{id}` | Delete an entry |
-| GET | `/api/v1/metrics/{metricType}/history` | History for one metric type |
-| GET | `/api/v1/metrics/snapshot` | Latest value per type + computed BMI/SMI |
-| GET | `/api/v1/metrics/insights` | Health insights with status + reference ranges |
-| GET | `/api/v1/metrics/custom` | List custom metric definitions |
-| POST | `/api/v1/metrics/custom` | Create a custom metric definition |
-| DELETE | `/api/v1/metrics/custom/{key}` | Delete custom def + all its entries |
+| POST | `/api/v1/body-metrics/entries` | Batch log metric entries |
+| GET | `/api/v1/body-metrics/entries?date=` | All entries for a date |
+| PUT | `/api/v1/body-metrics/entries/{id}` | Update an entry |
+| DELETE | `/api/v1/body-metrics/entries/{id}` | Delete an entry |
+| GET | `/api/v1/body-metrics/{metricType}/history` | History for one metric type |
+| GET | `/api/v1/body-metrics/snapshot` | Latest value per type + computed BMI/SMI |
+| GET | `/api/v1/body-metrics/insights` | Health insights with status + reference ranges |
+| GET | `/api/v1/body-metrics/custom` | List custom metric definitions |
+| POST | `/api/v1/body-metrics/custom` | Create a custom metric definition |
+| DELETE | `/api/v1/body-metrics/custom/{key}` | Delete custom def + all its entries |
 
 ---
 
-### POST /api/v1/metrics/entries
+### POST /api/v1/body-metrics/entries
 
 **Batch log metric entries.**
 
@@ -252,7 +253,7 @@ Returns the saved entries in the same order they were submitted.
 
 ---
 
-### GET /api/v1/metrics/entries
+### GET /api/v1/body-metrics/entries
 
 **Get all entries logged on a specific date.**
 
@@ -266,7 +267,7 @@ Use this to pre-fill the log form when the user navigates to a past date. Return
 
 **Example**
 ```
-GET /api/v1/metrics/entries?date=2026-02-28
+GET /api/v1/body-metrics/entries?date=2026-02-28
 ```
 
 **Response — 200 OK**
@@ -303,7 +304,7 @@ Returns an empty array `[]` if no entries exist for that date.
 
 ---
 
-### PUT /api/v1/metrics/entries/{id}
+### PUT /api/v1/body-metrics/entries/{id}
 
 **Update a single metric entry.**
 
@@ -311,12 +312,12 @@ All body fields are optional — only the fields you include are applied. The `m
 
 > **Where does the `{id}` come from?**
 >
-> The `id` is the numeric `id` field returned in every `MetricEntryResponse` — from the `POST /api/v1/metrics/entries` response, or from `GET /api/v1/metrics/entries?date=YYYY-MM-DD`.
+> The `id` is the numeric `id` field returned in every `MetricEntryResponse` — from the `POST /api/v1/body-metrics/entries` response, or from `GET /api/v1/body-metrics/entries?date=YYYY-MM-DD`.
 >
 > **Typical flow for editing:**
 > ```
-> 1. GET  /api/v1/metrics/entries?date=2026-02-28   → find the entry for the type you want to edit, note its `id`
-> 2. PUT  /api/v1/metrics/entries/{id}              → send only the fields that changed
+> 1. GET  /api/v1/body-metrics/entries?date=2026-02-28   → find the entry for the type you want to edit, note its `id`
+> 2. PUT  /api/v1/body-metrics/entries/{id}              → send only the fields that changed
 > ```
 > If you skip step 1 and guess an ID, you will get **404**. Always fetch the entries list first.
 
@@ -347,7 +348,7 @@ All body fields are optional — only the fields you include are applied. The `m
 
 First, get the entries for the date the lab result was logged:
 ```
-GET /api/v1/metrics/entries?date=2026-02-10
+GET /api/v1/body-metrics/entries?date=2026-02-10
 ```
 Response includes:
 ```json
@@ -355,7 +356,7 @@ Response includes:
 ```
 Then correct the value:
 ```
-PUT /api/v1/metrics/entries/11585000000702908
+PUT /api/v1/body-metrics/entries/11585000000702908
 ```
 ```json
 {
@@ -396,11 +397,11 @@ PUT /api/v1/metrics/entries/11585000000702908
 |---|---|
 | 400 `INVALID_REQUEST` | `logDate` provided but not in `YYYY-MM-DD` format |
 | 403 `FORBIDDEN` | Entry belongs to a different user |
-| 404 `NOT_FOUND` | Entry ID does not exist — check you obtained the `id` from `GET /api/v1/metrics/entries?date=` first |
+| 404 `NOT_FOUND` | Entry ID does not exist — check you obtained the `id` from `GET /api/v1/body-metrics/entries?date=` first |
 
 ---
 
-### DELETE /api/v1/metrics/entries/{id}
+### DELETE /api/v1/body-metrics/entries/{id}
 
 **Delete a single metric entry.**
 
@@ -412,7 +413,7 @@ PUT /api/v1/metrics/entries/11585000000702908
 
 **Example**
 ```
-DELETE /api/v1/metrics/entries/1001
+DELETE /api/v1/body-metrics/entries/1001
 ```
 
 **Response — 204 No Content** (empty body)
@@ -426,7 +427,7 @@ DELETE /api/v1/metrics/entries/1001
 
 ---
 
-### GET /api/v1/metrics/{metricType}/history
+### GET /api/v1/body-metrics/{metricType}/history
 
 **Get the history of measurements for a single metric type.**
 
@@ -447,10 +448,10 @@ Returns all entries for one metric type within a date range, sorted oldest-first
 
 **Examples**
 ```
-GET /api/v1/metrics/weight/history
-GET /api/v1/metrics/weight/history?startDate=2026-01-01&endDate=2026-02-28
-GET /api/v1/metrics/cholesterolLDL/history?startDate=2025-01-01
-GET /api/v1/metrics/custom_sgpt/history
+GET /api/v1/body-metrics/weight/history
+GET /api/v1/body-metrics/weight/history?startDate=2026-01-01&endDate=2026-02-28
+GET /api/v1/body-metrics/cholesterolLDL/history?startDate=2025-01-01
+GET /api/v1/body-metrics/custom_sgpt/history
 ```
 
 **Response — 200 OK**
@@ -491,7 +492,7 @@ Returns an empty array `[]` if no data exists for that metric type in the given 
 
 ---
 
-### GET /api/v1/metrics/snapshot
+### GET /api/v1/body-metrics/snapshot
 
 **Get the most recent value for every metric the user has ever logged.**
 
@@ -541,7 +542,7 @@ const bmiDate   = snapshot['bmi']?.logDate;         // "2026-02-28"
 
 ---
 
-### GET /api/v1/metrics/custom
+### GET /api/v1/body-metrics/custom
 
 **List the calling user's custom metric definitions.**
 
@@ -565,7 +566,7 @@ Returns an empty array `[]` if the user has no custom metrics defined.
 
 ---
 
-### POST /api/v1/metrics/custom
+### POST /api/v1/body-metrics/custom
 
 **Create a custom metric definition.**
 
@@ -611,7 +612,7 @@ So `"SGPT"` → `custom_sgpt`, `"VO2 Max"` → `custom_vo2_max`.
 
 ---
 
-### DELETE /api/v1/metrics/custom/{key}
+### DELETE /api/v1/body-metrics/custom/{key}
 
 **Delete a custom metric definition and all its logged entries.**
 
@@ -625,7 +626,7 @@ This is a **cascade delete** — removing the definition also permanently remove
 
 **Example**
 ```
-DELETE /api/v1/metrics/custom/custom_sgpt
+DELETE /api/v1/body-metrics/custom/custom_sgpt
 ```
 
 **Response — 204 No Content** (empty body)
@@ -638,7 +639,7 @@ DELETE /api/v1/metrics/custom/custom_sgpt
 
 ---
 
-### GET /api/v1/metrics/insights
+### GET /api/v1/body-metrics/insights
 
 **Get health insights derived from the user's most-recent metric values.**
 
@@ -654,8 +655,8 @@ Call this to power the health warnings panel, the "Your stats at a glance" dashb
 
 **Examples**
 ```
-GET /api/v1/metrics/insights
-GET /api/v1/metrics/insights?gender=MALE
+GET /api/v1/body-metrics/insights
+GET /api/v1/body-metrics/insights?gender=MALE
 ```
 
 **Response — 200 OK**
@@ -730,18 +731,18 @@ All list endpoints return an empty array `[]` when there is no data — the clie
 
 ### Conflict between existing entries and re-logging
 
-The backend does not enforce "one entry per metricType per date". If the user submits `weight` for the same date twice, two entries will exist. On the log form, use `GET /api/v1/metrics/entries?date=` to pre-fill — if an entry already exists for a type, the client should `PUT` it instead of `POST`ing a new one.
+The backend does not enforce "one entry per metricType per date". If the user submits `weight` for the same date twice, two entries will exist. On the log form, use `GET /api/v1/body-metrics/entries?date=` to pre-fill — if an entry already exists for a type, the client should `PUT` it instead of `POST`ing a new one.
 
 **Recommended log form pattern:**
 ```
-1. GET /api/v1/metrics/entries?date={selectedDate}
+1. GET /api/v1/body-metrics/entries?date={selectedDate}
    → Store the response as a map:  existingEntries[metricType] = { id, value, unit, ... }
 
 2. User edits fields on the form.
 
 3. On save — for each edited field:
-   - If existingEntries[metricType] exists  → PUT /api/v1/metrics/entries/{existingEntries[metricType].id}
-   - If it does not exist                   → include in the POST /api/v1/metrics/entries batch
+   - If existingEntries[metricType] exists  → PUT /api/v1/body-metrics/entries/{existingEntries[metricType].id}
+   - If it does not exist                   → include in the POST /api/v1/body-metrics/entries batch
 ```
 
 This ensures you always use the correct `id` for PUT calls and never duplicate entries.

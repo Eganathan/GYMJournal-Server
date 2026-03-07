@@ -38,7 +38,8 @@ class ExerciseRepository(
         val conditions = mutableListOf<String>()
 
         if (onlyMine) {
-            conditions.add("CREATORID = '${ZcqlSanitizer.sanitize(callingUserId)}'")
+            // Use explicit userId column — CREATORID is unreliable in AppSail (app credentials, not user)
+            conditions.add("userId = '${ZcqlSanitizer.sanitize(callingUserId)}'")
         }
         muscleId?.let {
             conditions.add("primaryMuscleId = $it")
@@ -51,7 +52,8 @@ class ExerciseRepository(
         }
 
         val where = if (conditions.isEmpty()) "" else " WHERE ${conditions.joinToString(" AND ")}"
-        return db.query("SELECT * FROM $TABLE$where ORDER BY name ASC").map { it.toExercise() }
+        // ZCQL hard cap is 300 rows — make it explicit. Service does in-memory pagination on top.
+        return db.query("SELECT * FROM $TABLE$where ORDER BY name ASC LIMIT 0,300").map { it.toExercise() }
     }
 
     fun findById(id: Long): Exercise? =
@@ -94,13 +96,15 @@ class ExerciseRepository(
         videoUrl         = get("videoUrl")?.toString()?.takeIf { it.isNotBlank() },
         tags             = get("tags")?.toString().toStringList(),
         // Catalyst system columns — auto-provided, never written in toMap()
-        createdBy        = get("CREATORID")?.toString() ?: "",
+        createdBy        = get("userId")?.toString() ?: "",
         createdAt        = get("CREATEDTIME")?.toString() ?: "",
         updatedAt        = get("MODIFIEDTIME")?.toString() ?: ""
     )
 
     private fun Exercise.toMap(): Map<String, Any> = buildMap {
-        // Only user-defined columns — CREATORID, CREATEDTIME, MODIFIEDTIME are set by Catalyst automatically
+        // userId stored explicitly — CREATORID is unreliable in AppSail (app credentials, not user)
+        // CREATEDTIME, MODIFIEDTIME are still auto-set by Catalyst
+        put("userId", createdBy)
         put("name", name)
         put("description", description)
         put("primaryMuscleId", primaryMuscleId)

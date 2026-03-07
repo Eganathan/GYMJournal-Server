@@ -9,7 +9,9 @@ import dev.eknath.GymJournal.model.domain.MuscleGroup
 import dev.eknath.GymJournal.modules.exercises.EquipmentRepository
 import dev.eknath.GymJournal.modules.exercises.ExerciseRepository
 import dev.eknath.GymJournal.modules.exercises.MuscleGroupRepository
+import dev.eknath.GymJournal.repository.CatalystDataStoreRepository
 import dev.eknath.GymJournal.util.ApiResponse
+import dev.eknath.GymJournal.util.currentUserId
 import org.springframework.core.io.ClassPathResource
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestMapping
@@ -33,11 +35,28 @@ class AdminController(
     private val muscleGroupRepo: MuscleGroupRepository,
     private val equipmentRepo: EquipmentRepository,
     private val exerciseRepo: ExerciseRepository,
+    private val db: CatalystDataStoreRepository,
     private val mapper: ObjectMapper
 ) {
 
     @PostMapping("/seed")
     fun seed(): ApiResponse<*> {
+        // Fast-path: if all three tables already have data, return without touching the DB again.
+        // This prevents re-running expensive seeding logic on repeated accidental calls.
+        val muscleCount   = muscleGroupRepo.findAll().size
+        val equipCount    = equipmentRepo.findAll().size
+        val exerciseCount = exerciseRepo.findAll("", null, null, null, false).size
+        if (muscleCount > 0 && equipCount > 0 && exerciseCount > 0) {
+            return ApiResponse.ok(
+                mapOf(
+                    "muscleGroupsInserted" to 0,
+                    "equipmentInserted"    to 0,
+                    "exercisesInserted"    to 0,
+                    "message"              to "Already seeded — no changes made"
+                )
+            )
+        }
+
         val musclesSeeded   = seedMuscleGroups()
         val equipmentSeeded = seedEquipment()
         val exercisesSeeded = seedExercises()
@@ -47,6 +66,106 @@ class AdminController(
                 "equipmentInserted"    to equipmentSeeded,
                 "exercisesInserted"    to exercisesSeeded,
                 "message"              to "Seed complete"
+            )
+        )
+    }
+
+    /**
+     * Force-seed: identical to [seed] but skips the fast-path guard so it always
+     * runs even if tables appear non-empty. Exercises are attributed to [ownerId]
+     * (defaults to "10119736618") so they show up under "My Exercises" for that user.
+     *
+     * Safe to call multiple times — the per-exercise name-based idempotency check
+     * in [seedExercises] prevents duplicate inserts.
+     *
+     *   POST /api/v1/admin/force-seed
+     */
+    @PostMapping("/force-seed")
+    fun forceSeed(): ApiResponse<*> {
+        val ownerId = "10119736618"
+        val musclesSeeded   = seedMuscleGroups()
+        val equipmentSeeded = seedEquipment()
+        val exercisesSeeded = seedExercises(creatorId = ownerId)
+        return ApiResponse.ok(
+            mapOf(
+                "muscleGroupsInserted" to musclesSeeded,
+                "equipmentInserted"    to equipmentSeeded,
+                "exercisesInserted"    to exercisesSeeded,
+                "ownerId"              to ownerId,
+                "message"              to "Force seed complete — exercises attributed to user $ownerId"
+            )
+        )
+    }
+
+    // ---------------------------------------------------------------------------
+    // One-time migration: claim orphaned rows (userId = "") for the calling user
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Claims all DataStore rows that have an empty `userId` column by setting
+     * their `userId` to the calling user's ZID.
+     *
+     * This is needed for data created before the explicit `userId` column was
+     * added to each table. Without this, those rows return 403 on GET / PUT / DELETE
+     * because the ownership check (`createdBy != callingUserId`) always fails.
+     *
+     * Safe to call multiple times — subsequent calls will find 0 orphaned rows
+     * and return immediately without touching the DB.
+     *
+     *   POST /api/v1/admin/migrate/claim-orphaned
+     */
+    @PostMapping("/migrate/claim-orphaned")
+    fun claimOrphanedRows(): ApiResponse<*> {
+        val userId = currentUserId()
+
+        // Tables that store per-user data with an explicit userId column.
+        // WorkoutSets do not have a userId column (they belong to a session) — excluded.
+        // Exercises are shared / public — excluded.
+        val userDataTables = listOf(
+            "Routines",
+            "WorkoutSessions",
+            "BodyMetricEntries",
+            "WaterIntakeLogs",
+            "CustomMetricDefs"
+        )
+
+        val counts = mutableMapOf<String, Int>()
+
+        userDataTables.forEach { table ->
+            // Fetch all rows and filter in-memory.
+            // ZCQL  WHERE userId = ''  does NOT match rows where the column value is NULL
+            // (which is what Catalyst DataStore stores when a column is added after insert).
+            // In-memory filtering catches both NULL and empty-string cases.
+            val allRows = db.query("SELECT * FROM $table LIMIT 0,300")
+            val orphaned = allRows.filter { row ->
+                val uid = row.get("userId")?.toString()
+                uid.isNullOrBlank() || uid == "null"
+            }
+            var updated = 0
+            orphaned.forEach { row ->
+                val rowId = row.get("ROWID")?.toString()?.toLongOrNull()
+                if (rowId != null) {
+                    try {
+                        db.update(table, rowId, mapOf("userId" to userId))
+                        updated++
+                    } catch (_: Exception) {
+                        // log and continue — don't abort entire migration for one row
+                    }
+                }
+            }
+            counts[table] = updated
+        }
+
+        val totalUpdated = counts.values.sum()
+        return ApiResponse.ok(
+            mapOf(
+                "updatedByTable" to counts,
+                "totalUpdated"   to totalUpdated,
+                "claimedBy"      to userId,
+                "message"        to if (totalUpdated > 0)
+                    "Claimed $totalUpdated orphaned row(s) for user $userId"
+                else
+                    "No orphaned rows found — nothing to migrate"
             )
         )
     }
@@ -80,8 +199,12 @@ class AdminController(
      * [seedMuscleGroups] and [seedEquipment] must have been called (or pre-seeded)
      * before this runs. Any exercise whose muscle group or equipment cannot be
      * resolved is skipped silently.
+     *
+     * @param creatorId the userId to store as the exercise owner. Defaults to "system"
+     *   for shared library exercises; pass a real user ZID via [forceSeed] to attribute
+     *   exercises to a specific user.
      */
-    private fun seedExercises(): Int {
+    private fun seedExercises(creatorId: String = "system"): Int {
         // Build name → id lookup maps from whatever is in the DB right now
         val muscleNameToId = muscleGroupRepo.findAll().mapNotNull { g ->
             g.id?.let { g.displayName to it }
@@ -142,7 +265,7 @@ class AdminController(
                     imageUrl         = imageUrl,
                     videoUrl         = videoUrl,
                     tags             = ex.tags,
-                    createdBy        = "",
+                    createdBy        = creatorId,
                     createdAt        = "",
                     updatedAt        = ""
                 )

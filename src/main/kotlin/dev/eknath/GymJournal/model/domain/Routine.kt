@@ -39,8 +39,8 @@ data class RoutineItem(
  * and cloned by any user.
  *
  * Stored in the `Routines` DataStore table.
- * System columns ROWID → id, CREATORID → createdBy, CREATEDTIME → createdAt,
- * MODIFIEDTIME → updatedAt.
+ * User-defined columns include userId (explicit ownership — CREATORID is unreliable in AppSail).
+ * System columns: ROWID → id, CREATEDTIME → createdAt, MODIFIEDTIME → updatedAt.
  */
 data class Routine(
     val id: Long? = null,
@@ -50,7 +50,7 @@ data class Routine(
     val estimatedMinutes: Int,              // advisory; 0 = not set
     val tags: List<String>,                 // JSON-serialised in DB
     val isPublic: Int,                      // 1 = anyone can browse/clone, 0 = private
-    val createdBy: String,                  // from CREATORID
-    val createdAt: String,                  // from CREATEDTIME  (yyyy-MM-dd HH:mm:ss in DB)
-    val updatedAt: String                   // from MODIFIEDTIME (yyyy-MM-dd HH:mm:ss in DB)
+    val createdBy: String,                  // stored in explicit userId column (CREATORID unreliable in AppSail)
+    val createdAt: String,                  // CREATEDTIME — auto-set by Catalyst (yyyy-MM-dd HH:mm:ss in DB)
+    val updatedAt: String                   // MODIFIEDTIME — auto-set by Catalyst (yyyy-MM-dd HH:mm:ss in DB)
 )

@@ -316,7 +316,8 @@ DELETE FROM Exercises WHERE CREATORID = 'userId123' AND difficulty = 'BEGINNER'
 
 ```kotlin
 // No bind params in ZCQL — sanitize all user strings before interpolation
-val q = "SELECT * FROM Exercises WHERE CREATORID = '${ZcqlSanitizer.sanitize(userId)}'"
+// Use explicit userId column — NOT CREATORID (see gotcha #17)
+val q = "SELECT * FROM Exercises WHERE userId = '${ZcqlSanitizer.sanitize(userId)}'"
 ```
 
 ### CatalystDataStoreRepository
@@ -370,7 +371,8 @@ return if (rowId != null) db.getRow(TABLE, rowId)?.toDomain() ?: fallback.copy(i
 ```kotlin
 fun buildListQuery(userId: String, page: Int, pageSize: Int): String {
     val conditions = mutableListOf<String>()
-    conditions.add("Exercises.CREATORID = '${ZcqlSanitizer.sanitize(userId)}'")
+    // Use explicit userId column — CREATORID is unreliable in AppSail (see gotcha #17)
+    conditions.add("Exercises.userId = '${ZcqlSanitizer.sanitize(userId)}'")
     val where = if (conditions.isEmpty()) "" else "WHERE ${conditions.joinToString(" AND ")} "
     return buildString {
         append("SELECT Exercises.ROWID, Exercises.name, Exercises.difficulty, ")
@@ -386,14 +388,17 @@ fun buildListQuery(userId: String, page: Int, pageSize: Int): String {
 }
 ```
 
-### Reading system columns from ZCRowObject
+### Reading ownership / system columns from ZCRowObject
 
 ```kotlin
 private fun ZCRowObject.toExercise() = Exercise(
     id        = get("ROWID")?.toString()?.toLongOrNull(),
     name      = get("name")?.toString() ?: "",
     // ...
-    createdBy = get("CREATORID")?.toString() ?: "",
+    // Read explicit userId column first; fall back to CREATORID for old rows
+    // CREATORID is unreliable in AppSail (project service account, not user) — see gotcha #17
+    createdBy = get("userId")?.toString()?.takeIf { it.isNotBlank() }
+                    ?: get("CREATORID")?.toString() ?: "",
     createdAt = get("CREATEDTIME")?.toString() ?: "",
     updatedAt = get("MODIFIEDTIME")?.toString() ?: ""
 )
@@ -429,3 +434,4 @@ Set this in the AppSail function's environment variables to ensure V2 parser (JO
 | 14 | V2 parser must be enabled | Set `ZOHO_CATALYST_ZCQL_PARSER=V2` in env |
 | 15 | **ZCQL reads can silently fail** even when writes (ZCObject) work | Use `db.getRow(TABLE, id)` (ZCObject) for `findById`, never `db.queryOne("WHERE ROWID = x")` |
 | 16 | `COUNT(*)` not supported in ZCQL V2 | Use `COUNT(ROWID)` instead |
+| 17 | **`CREATORID` = project service account in AppSail**, not the end-user's ZID | Add explicit `userId` Var Char(50) column to every user-owned table; write `put("userId", createdBy)` in `toMap()`; query with `WHERE userId = '...'` |

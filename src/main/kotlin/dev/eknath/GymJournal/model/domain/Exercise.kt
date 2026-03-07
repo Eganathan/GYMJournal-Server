@@ -12,11 +12,11 @@ package dev.eknath.GymJournal.model.domain
  *
  * Catalyst DataStore table: Exercises
  * User-defined columns: name, description, primaryMuscleId, secondaryMuscles,
- *                       equipmentId, difficulty, instructions, tips, imageUrl, videoUrl, tags
+ *                       equipmentId, difficulty, instructions, tips, imageUrl, videoUrl, tags,
+ *                       userId (explicit ownership — CREATORID is unreliable in AppSail)
  * System columns (auto-provided by Catalyst — do NOT create manually):
- *   ROWID       → id
- *   CREATORID   → createdBy
- *   CREATEDTIME → createdAt
+ *   ROWID        → id
+ *   CREATEDTIME  → createdAt
  *   MODIFIEDTIME → updatedAt
  */
 data class Exercise(
@@ -32,7 +32,7 @@ data class Exercise(
     val imageUrl: String?,
     val videoUrl: String?,
     val tags: List<String>,                 // e.g. ["compound", "pull", "bodyweight"]
-    val createdBy: String,                  // from CREATORID (Catalyst system column)
-    val createdAt: String,                  // from CREATEDTIME (Catalyst system column)
-    val updatedAt: String                   // from MODIFIEDTIME (Catalyst system column)
+    val createdBy: String,                  // stored in explicit userId column (CREATORID unreliable in AppSail)
+    val createdAt: String,                  // CREATEDTIME — auto-set by Catalyst
+    val updatedAt: String                   // MODIFIEDTIME — auto-set by Catalyst
 )

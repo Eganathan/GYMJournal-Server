@@ -29,7 +29,7 @@ Detailed REST API docs (request/response shapes, params, error codes) live in [`
 | [`apiDocs/health.md`](./apiDocs/health.md) | `GET /api/v1/health` |
 | [`apiDocs/hydration.md`](./apiDocs/hydration.md) | All `/api/v1/water` endpoints |
 | [`apiDocs/exercises.md`](./apiDocs/exercises.md) | All `/api/v1/exercises` + `/api/v1/admin/seed` endpoints |
-| [`apiDocs/metrics.md`](./apiDocs/metrics.md) | All `/api/v1/metrics` endpoints |
+| [`apiDocs/metrics.md`](./apiDocs/metrics.md) | All `/api/v1/body-metrics` endpoints |
 | [`apiDocs/routines.md`](./apiDocs/routines.md) | All `/api/v1/routines` endpoints |
 | [`apiDocs/workouts.md`](./apiDocs/workouts.md) | All `/api/v1/workouts` + exercise history/PBs endpoints |
 | [`apiDocs/media.md`](./apiDocs/media.md) | `POST /api/v1/media/upload` — image/video uploads to Catalyst FileStore |
@@ -128,7 +128,7 @@ GymJournal/Server/
     │           │   ├── MuscleGroupRepository.kt   # MuscleGroups lookup table CRUD
     │           │   └── EquipmentRepository.kt     # Equipment lookup table CRUD
     │           ├── metrics/
-    │           │   ├── BodyMetricController.kt    # All /api/v1/metrics endpoints
+    │           │   ├── BodyMetricController.kt    # All /api/v1/body-metrics endpoints (except /insights)
     │           │   ├── BodyMetricService.kt       # Batch log, history, snapshot + computed metrics
     │           │   ├── BodyMetricRepository.kt    # BodyMetricEntries DataStore queries
     │           │   └── CustomMetricDefRepository.kt # CustomMetricDefs DataStore queries
@@ -136,9 +136,9 @@ GymJournal/Server/
     │           │   ├── MetricInsightsEngine.kt    # Interface + domain types (InsightContext, MetricInsight, etc.)
     │           │   ├── CompositeInsightsEngine.kt # Aggregates all engines via Spring list injection
     │           │   ├── InsightsService.kt         # Calls snapshot → builds context → runs composite engine
-    │           │   ├── InsightsController.kt      # GET /api/v1/metrics/insights
+    │           │   ├── InsightsController.kt      # GET /api/v1/body-metrics/insights
     │           │   └── engines/
-    │           │       └── ReferenceRangeInsightsEngine.kt  # @Order(1) engine; clinical ref ranges
+    │           │       └── ReferenceRangeInsightsEngine.kt  # @Order(1) engine; clinical ref ranges (WHO/ACC/ADA)
     │           ├── routines/
     │           │   ├── RoutineController.kt       # All /api/v1/routines endpoints
     │           │   ├── RoutineService.kt          # Ownership checks, search/pagination, clone logic
@@ -293,19 +293,22 @@ All endpoints require auth. Each entry is owned by the creator. See [`features/B
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/v1/metrics/entries` | Batch log metric entries (rejects computed types bmi/smiComputed with 400) |
-| GET | `/api/v1/metrics/entries?date=YYYY-MM-DD` | All entries for a date (defaults to today) |
-| PUT | `/api/v1/metrics/entries/{id}` | Update an entry (creator only — 403 otherwise) |
-| DELETE | `/api/v1/metrics/entries/{id}` | Delete an entry (creator only — 403 otherwise) |
-| GET | `/api/v1/metrics/{metricType}/history` | History for one metric type (default: last 90 days) |
-| GET | `/api/v1/metrics/snapshot` | Latest value per type + server-side computed bmi/smiComputed |
-| GET | `/api/v1/metrics/custom` | List user's custom metric definitions |
-| POST | `/api/v1/metrics/custom` | Create a custom metric definition |
-| DELETE | `/api/v1/metrics/custom/{key}` | Delete custom def + cascade-delete all its entries |
+| POST | `/api/v1/body-metrics/entries` | Batch log metric entries (rejects computed types bmi/smiComputed with 400) |
+| GET | `/api/v1/body-metrics/entries?date=YYYY-MM-DD` | All entries for a date (defaults to today) |
+| PUT | `/api/v1/body-metrics/entries/{id}` | Update an entry (creator only — 403 otherwise) |
+| DELETE | `/api/v1/body-metrics/entries/{id}` | Delete an entry (creator only — 403 otherwise) |
+| GET | `/api/v1/body-metrics/{metricType}/history` | History for one metric type (default: last 90 days) |
+| GET | `/api/v1/body-metrics/snapshot` | Latest value per type + server-side computed bmi/smiComputed |
+| GET | `/api/v1/body-metrics/insights?gender=MALE\|FEMALE` | Health insights with severity status + reference ranges (WHO/ACC/ADA) |
+| GET | `/api/v1/body-metrics/custom` | List user's custom metric definitions |
+| POST | `/api/v1/body-metrics/custom` | Create a custom metric definition |
+| DELETE | `/api/v1/body-metrics/custom/{key}` | Delete custom def + cascade-delete all its entries |
 
 **Computed metrics** (`bmi`, `smiComputed`) are never stored. They are derived server-side in the snapshot:
 - `bmi = weight(kg) / (height(cm)/100)²`
 - `smiComputed = smm(kg) / (height(cm)/100)²`
+
+**Insights** are served by `InsightsController` (module: `insights/`) via the composite engine pattern. The `?gender=MALE|FEMALE` param enables gender-aware thresholds for body fat % and SMI cutoffs.
 
 ### Routine Library
 
@@ -363,115 +366,133 @@ Idempotent — skips tables that already have rows. Call once after deploying to
 
 ## DataStore Tables
 
-### WaterIntakeLogs
+> All tables are managed in the **Catalyst Console** — ZCQL has no DDL. System columns (`ROWID` BigInt auto-PK, `CREATORID`, `CREATEDTIME`, `MODIFIEDTIME`) are added automatically — never create these manually.
+> All user-owned tables have an explicit `userId` Var Char column — **do not** rely on `CREATORID` for ZCQL ownership queries.
 
-| Column | Type | Notes |
-|---|---|---|
-| `userId` | Var Char | Catalyst user ID (from `x-zc-user-id`) |
-| `logDateTime` | Var Char | Stored as `yyyy-MM-dd HH:mm:ss`; returned as ISO-8601 (`T` separator) |
-| `amountMl` | Int | Volume in millilitres (min 1) |
-| `notes` | Var Char | Optional free text |
+### WaterIntakeLogs
+**Catalyst Console Table ID:** `11585000000689556`
+
+| Column | Type | Mandatory | Notes |
+|---|---|---|---|
+| `userId` | Text | ✓ | Catalyst user ID (from `x-zc-user-id`) |
+| `logDateTime` | DateTime | ✓ | Search-indexed; stored as `yyyy-MM-dd HH:mm:ss`; returned as ISO-8601 |
+| `amountMl` | Int | ✓ | Volume in millilitres (min 1) |
+| `notes` | Text | — | Optional free text |
 
 ### MuscleGroups
+**Catalyst Console Table ID:** `11585000000698134`
+
+Reference data — no `userId` (global lookup table; seeded via admin endpoint, not user-owned).
 
 | Column | Type | Mandatory | Notes |
 |---|---|---|---|
 | `displayName` | Text | ✓ | e.g. `Latissimus Dorsi` |
-| `shortName` | Text | ✓ | e.g. `Lats` |
+| `shortName` | Text | — | e.g. `Lats` |
 | `description` | Text | — | Human-readable description |
-| `bodyRegion` | Text | ✓ | `UPPER_BODY` \| `LOWER_BODY` \| `CORE` \| `FULL_BODY` \| `OTHER` |
+| `bodyRegion` | Text | — | `UPPER_BODY` \| `LOWER_BODY` \| `CORE` \| `FULL_BODY` \| `OTHER` |
 | `imageUrl` | Text | — | Optional illustration URL |
 
 Default data inserted via `POST /api/v1/admin/seed`.
 
 ### Equipment
+**Catalyst Console Table ID:** `11585000000690690`
+
+Reference data — no `userId` (global lookup table; seeded via admin endpoint, not user-owned).
 
 | Column | Type | Mandatory | Notes |
 |---|---|---|---|
-| `displayName` | Text | ✓ | e.g. `Barbell` |
+| `displayName` | Text | — | e.g. `Barbell` |
 | `description` | Text | — | Human-readable description |
-| `category` | Text | ✓ | `FREE_WEIGHTS` \| `MACHINES` \| `BODYWEIGHT` \| `CARDIO_MACHINES` \| `OTHER` |
+| `category` | Text | — | `FREE_WEIGHTS` \| `MACHINES` \| `BODYWEIGHT` \| `CARDIO_MACHINES` \| `OTHER` |
 | `imageUrl` | Text | — | Optional illustration URL |
 
 Default data inserted via `POST /api/v1/admin/seed`.
 
 ### Exercises
+**Catalyst Console Table ID:** `11585000000697412`
 
 | Column | Type | Mandatory | Notes |
 |---|---|---|---|
-| `name` | Var Char (100) | ✓ | Exercise name |
+| `name` | Text | — | Exercise name |
 | `description` | Text | — | Overview |
-| `primaryMuscleId` | BigInt | ✓ | FK → `MuscleGroups.ROWID` |
-| `secondaryMuscles` | Text | — | JSON array e.g. `["Rhomboids","Biceps"]` |
-| `equipmentId` | BigInt | ✓ | FK → `Equipment.ROWID` |
-| `difficulty` | Var Char (20) | ✓ | `BEGINNER` \| `INTERMEDIATE` \| `ADVANCED` |
-| `instructions` | Text | ✓ | JSON array of ordered steps |
+| `difficulty` | Text | — | `BEGINNER` \| `INTERMEDIATE` \| `ADVANCED` |
+| `instructions` | Text | — | JSON array of ordered steps |
 | `tips` | Text | — | JSON array of coaching cues |
-| `imageUrl` | Var Char (255) | — | Optional |
-| `videoUrl` | Var Char (255) | — | Optional |
+| `imageUrl` | Text | — | Optional illustration URL |
+| `videoUrl` | Text | — | Optional video URL |
 | `tags` | Text | — | JSON array e.g. `["compound","pull"]` |
+| `primaryMuscleId` | BigInt (FK) | ✓ | FK → `MuscleGroups.ROWID`; search-indexed |
+| `equipmentId` | BigInt (FK) | — | FK → `Equipment.ROWID` |
+| `secondaryMuscles` | Text | — | JSON array e.g. `["Rhomboids","Biceps"]` |
+| `userId` | Var Char | — | Creator's Catalyst user ID; used for ownership checks (edit/delete) |
 
 List fields (`secondaryMuscles`, `instructions`, `tips`, `tags`) are stored as JSON strings and serialised/deserialised by `ExerciseRepository` via Jackson `ObjectMapper`.
 
 ### BodyMetricEntries
+**Catalyst Console Table ID:** `11585000000699049`
 
 | Column | Type | Mandatory | Notes |
 |---|---|---|---|
 | `metricType` | Text | ✓ | e.g. `weight`, `bodyFat`, `custom_sgpt` |
 | `value` | Double | ✓ | The measured numeric value |
 | `unit` | Text | ✓ | e.g. `kg`, `%`, `mg/dL` |
-| `logDate` | Text | ✓ | `YYYY-MM-DD` — stored as Text so lexicographic `>=`/`<=` works |
+| `logDate` | Date | ✓ | Search-indexed; `YYYY-MM-DD` date type — lexicographic `>=`/`<=` works for range queries |
 | `notes` | Text | — | Optional free-text note |
-
-> Recommendation: mark `logDate` as **Search Indexed** in the Catalyst Console for efficient date-range queries.
+| `userId` | Var Char | — | Creator's Catalyst user ID |
 
 Computed metrics (`bmi`, `smiComputed`) are never stored — derived server-side in the snapshot endpoint.
 
 ### CustomMetricDefs
+**Catalyst Console Table ID:** `11585000000699771`
 
 | Column | Type | Mandatory | Notes |
 |---|---|---|---|
-| `metricKey` | Text | ✓ | e.g. `custom_sgpt` — derived from label, unique per user (enforced in service) |
+| `metricKey` | Text | ✓ | e.g. `custom_sgpt` — derived from label; unique per user (enforced in service) |
 | `label` | Text | ✓ | User-supplied display name, e.g. `SGPT` |
 | `unit` | Text | — | e.g. `U/L` — may be empty string |
+| `userId` | Var Char | — | Creator's Catalyst user ID |
 
 ### Routines
+**Catalyst Console Table ID:** `11585000000700564`
 
 | Column | Type | Mandatory | Notes |
 |---|---|---|---|
-| `name` | Var Char (100) | ✓ | Routine name |
+| `name` | Var Char | ✓ | Routine name |
 | `description` | Text | — | Overview |
-| `items` | Text | ✓ | JSON array of RoutineItem objects |
+| `items` | Text | ✓ | JSON array of `RoutineItem` objects |
 | `estimatedMinutes` | Int | — | Advisory duration hint; 0 = not set |
+| `isPublic` | Int | — | Search-indexed; default `0`; `1` = any user can see/clone; `0` = private |
 | `tags` | Text | — | JSON array e.g. `["push","chest"]` |
-| `isPublic` | Int | ✓ | `1` = any user can see/clone; `0` = private |
+| `userId` | Var Char | — | Creator's Catalyst user ID |
 
 `items` JSON structure per item: `{ order, type, exerciseId?, exerciseName?, sets?, repsPerSet?, weightKg?, restAfterSeconds?, durationSeconds?, cardioName?, durationMinutes?, targetSpeedKmh? }`
 
 ### WorkoutSessions
+**Catalyst Console Table ID:** `11585000000701286`
 
 | Column | Type | Mandatory | Notes |
 |---|---|---|---|
-| `userId` | Var Char | ✓ | Catalyst user ID (explicit column for ZCQL queries) |
-| `routineId` | BigInt | ✓ | FK → `Routines.ROWID`. Every session must reference a routine — there is no standalone/free session. |
-| `routineName` | Var Char (100) | — | Denormalised; empty if standalone |
-| `name` | Var Char (100) | ✓ | e.g. "Push Day - Mon 3 Mar" |
-| `status` | Var Char (20) | ✓ | `IN_PROGRESS` \| `COMPLETED` |
-| `startedAt` | DateTime | ✓ | Written as `yyyy-MM-dd HH:mm:ss`; sessions list ordered by this DESC |
+| `userId` | Var Char (100) | ✓ | Catalyst user ID. **Note:** was incorrectly created as `BigInt` — corrected to `Var Char (100)` in the Catalyst Console. |
+| `routineId` | BigInt (FK) | ✓ | FK → `Routines.ROWID`. Every session must reference a routine — no standalone sessions. |
+| `routineName` | Var Char | — | Denormalised routine name snapshot |
+| `name` | Var Char | ✓ | e.g. "Push Day - Mon 3 Mar" |
+| `status` | Var Char | — | `IN_PROGRESS` \| `COMPLETED` |
+| `startedAt` | DateTime | — | Written as `yyyy-MM-dd HH:mm:ss`; sessions list ordered by this DESC |
 | `completedAt` | DateTime | — | Omitted (null) on insert; written only when `/complete` is called |
 | `notes` | Text | — | Post-workout notes |
 
-> `startedAt` and `completedAt` are **DateTime** columns. `completedAt` is never written as an empty string — it is omitted from the insert map entirely and remains null until the session is completed. This avoids Catalyst rejecting an empty string for a DateTime type.
+> `completedAt` is a **DateTime** column. It is never written as an empty string — omitted from the insert map entirely and remains null until the session is completed. This avoids Catalyst rejecting an empty string for a DateTime column.
 
 ### WorkoutSets
+**Catalyst Console Table ID:** `11585000000702008`
 
 | Column | Type | Mandatory | Notes |
 |---|---|---|---|
-| `sessionId` | BigInt | ✓ | FK → `WorkoutSessions.ROWID` |
-| `userId` | Var Char | ✓ | Denormalised for direct ZCQL queries |
-| `exerciseId` | BigInt | ✓ | FK → `Exercises.ROWID`; `0` for REST/CARDIO |
-| `exerciseName` | Var Char (100) | — | Denormalised; empty for REST; activity name for CARDIO |
-| `itemType` | Var Char (20) | ✓ | `EXERCISE` \| `REST` \| `CARDIO` |
+| `sessionId` | BigInt (FK) | — | FK → `WorkoutSessions.ROWID` |
+| `userId` | Var Char | — | Denormalised for direct ZCQL queries (avoids joining sessions) |
+| `exerciseId` | BigInt (FK) | — | FK → `Exercises.ROWID`; `0` for REST/CARDIO |
+| `exerciseName` | Var Char | — | Denormalised; empty for REST; activity name for CARDIO |
+| `itemType` | Var Char | — | `EXERCISE` \| `REST` \| `CARDIO` |
 | `orderInSession` | Int | ✓ | Groups sets for the same exercise slot |
 | `setNumber` | Int | ✓ | 1, 2, 3… within an exercise slot; always 1 for REST/CARDIO |
 | `plannedReps` | Int | — | From routine template; 0 if not planned |
@@ -483,7 +504,12 @@ Computed metrics (`bmi`, `smiComputed`) are never stored — derived server-side
 | `rpe` | Int | — | 1–10 Rate of Perceived Exertion; 0 = not set |
 | `isPersonalBest` | Int | — | `0`/`1`; set by `/complete` PB detection |
 | `notes` | Text | — | Per-set notes |
-| `completedAt` | Var Char | — | Empty = not done; `yyyy-MM-dd HH:mm:ss` when done |
+| `completedAt` | Var Char | — | Empty string = not done; `yyyy-MM-dd HH:mm:ss` when done |
+
+### ExerciseLibrary (Legacy — Do Not Use)
+**Catalyst Console Table ID:** `11585000000686059`
+
+This table predates the current exercise architecture and uses all-uppercase column names (`NAME`, `CATEGORY`, `PRIMARY_MUSCLE_...`, `SECONDARY_MUSC...`, `EQUIPMENT`, `TRACKING_TYPE`, `INSTRUCTIONS`, `IS_CUSTOM`, `USER_ID`). It is **not read or written** by the current server code. Do not query, modify, or build on this table.
 
 ---
 
@@ -531,7 +557,6 @@ catalyst serve
 # Clean build
 ./gradlew clean build
 ```
-
 ---
 
 ## Conventions & Code Style

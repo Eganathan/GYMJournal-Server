@@ -38,7 +38,7 @@ data class WorkoutSet(
     val id: Long? = null,
     val sessionId: Long,
     val userId: String,                  // denormalised for direct ZCQL queries
-    val exerciseId: Long,                // 0 for REST / CARDIO
+    val exerciseId: Long?,               // null for REST / CARDIO (FK col is non-mandatory)
     val exerciseName: String,            // "" for REST; activity name for CARDIO
     val itemType: String,                // "EXERCISE" | "REST" | "CARDIO"
     val orderInSession: Int,             // groups same exercise slot together

@@ -38,7 +38,7 @@ data class UpdateRoutineRequest(
  * Full routine detail — returned by GET /{id} and POST (create/clone).
  */
 data class RoutineResponse(
-    val id: Long,
+    val id: String,
     val name: String,
     val description: String,
     val items: List<RoutineItem>,
@@ -54,7 +54,7 @@ data class RoutineResponse(
  * Compact routine item for paginated list responses.
  */
 data class RoutineSummaryResponse(
-    val id: Long,
+    val id: String,
     val name: String,
     val description: String,
     val estimatedMinutes: Int,

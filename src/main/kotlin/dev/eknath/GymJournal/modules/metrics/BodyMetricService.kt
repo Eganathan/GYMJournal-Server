@@ -45,7 +45,8 @@ class BodyMetricService(
                 value      = req.value,
                 unit       = req.unit.trim(),
                 logDate    = req.logDate,
-                notes      = req.notes.trim()
+                notes      = req.notes.trim(),
+                createdBy  = userId  // stored explicitly in userId column (CREATORID unreliable in AppSail)
             )
             entryRepo.save(entry)
         }.map { it.toResponse() }
@@ -172,7 +173,7 @@ class BodyMetricService(
             throw IllegalArgumentException(
                 "A custom metric with key '$key' already exists for this user."
             )
-        val def = CustomMetricDef(metricKey = key, label = label, unit = request.unit.trim())
+        val def = CustomMetricDef(metricKey = key, label = label, unit = request.unit.trim(), createdBy = userId)
         return defRepo.save(def).toResponse()
     }
 
@@ -182,9 +183,13 @@ class BodyMetricService(
     fun deleteCustomDef(userId: String, key: String) {
         val def = defRepo.findByKey(userId, key)
             ?: throw NoSuchElementException("Custom metric definition '$key' not found")
+        val defId = def.id
+            ?: throw IllegalStateException("Custom metric definition '$key' has no ROWID — cannot delete")
         // Cascade: remove all stored entries for this custom type
-        entryRepo.findAllByType(userId, key).forEach { entryRepo.delete(it.id!!) }
-        defRepo.delete(def.id!!)
+        entryRepo.findAllByType(userId, key).forEach { entry ->
+            entry.id?.let { entryRepo.delete(it) }
+        }
+        defRepo.delete(defId)
     }
 
     // ---------------------------------------------------------------------------
@@ -204,7 +209,7 @@ class BodyMetricService(
     // ---------------------------------------------------------------------------
 
     private fun BodyMetricEntry.toResponse() = MetricEntryResponse(
-        id         = id ?: 0,
+        id         = (id ?: 0).toString(),
         metricType = metricType,
         value      = value,
         unit       = unit,
@@ -222,7 +227,7 @@ class BodyMetricService(
     )
 
     private fun CustomMetricDef.toResponse() = CustomMetricDefResponse(
-        id        = id ?: 0,
+        id        = (id ?: 0).toString(),
         metricKey = metricKey,
         label     = label,
         unit      = unit

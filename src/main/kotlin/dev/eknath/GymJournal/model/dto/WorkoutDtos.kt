@@ -14,7 +14,7 @@ import jakarta.validation.constraints.Size
  * [startedAt] = null → server uses current time.
  */
 data class StartWorkoutRequest(
-    val routineId: Long,                // required — every session must reference a routine
+    val routineId: String,              // required — every session must reference a routine; String to survive JS precision loss on 17-digit Catalyst ROWIDs
     @field:Size(max = 100)
     val name: String? = null,
     val startedAt: String? = null       // ISO-8601; null = now
@@ -76,7 +76,7 @@ data class UpdateSetRequest(
 data class SessionItemGroup(
     val orderInSession: Int,
     val itemType: String,
-    val exerciseId: Long,
+    val exerciseId: String?,        // null for REST / CARDIO; String to preserve JS precision
     val exerciseName: String,
     val sets: List<WorkoutSetResponse>
 )
@@ -84,11 +84,14 @@ data class SessionItemGroup(
 /**
  * Full session detail — returned by GET /api/v1/workouts/{id}.
  * Sets are grouped by [orderInSession] into [exercises].
+ *
+ * All Long IDs are serialised as JSON strings to prevent JavaScript precision loss:
+ * Catalyst ROWIDs (~1.16 × 10^16) exceed Number.MAX_SAFE_INTEGER (2^53 − 1).
  */
 data class WorkoutSessionResponse(
-    val id: Long,
+    val id: String,
     val name: String,
-    val routineId: Long,
+    val routineId: String,
     val routineName: String,
     val status: String,
     val startedAt: String,
@@ -103,9 +106,9 @@ data class WorkoutSessionResponse(
  * Compact session item for list responses (GET /api/v1/workouts).
  */
 data class WorkoutSessionSummaryResponse(
-    val id: Long,
+    val id: String,
     val name: String,
-    val routineId: Long,
+    val routineId: String,
     val routineName: String,
     val status: String,
     val startedAt: String,
@@ -118,9 +121,9 @@ data class WorkoutSessionSummaryResponse(
  * A single set record — used inside [SessionItemGroup.sets] and in history/PBs.
  */
 data class WorkoutSetResponse(
-    val id: Long,
-    val sessionId: Long,
-    val exerciseId: Long,
+    val id: String,
+    val sessionId: String,
+    val exerciseId: String?,        // null for REST / CARDIO; String to preserve JS precision
     val exerciseName: String,
     val itemType: String,
     val orderInSession: Int,

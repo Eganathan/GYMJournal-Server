@@ -4,12 +4,14 @@ package dev.eknath.GymJournal.model.domain
  * Represents a single metric measurement logged by a user.
  *
  * Catalyst DataStore table: BodyMetricEntries
- * User-defined columns: metricType, value, unit, logDate, notes
+ * User-defined columns: metricType, value, unit, logDate, notes, userId (explicit ownership)
  * System columns (auto-provided by Catalyst — do NOT create manually):
  *   ROWID        → id
- *   CREATORID    → createdBy
  *   CREATEDTIME  → createdAt
  *   MODIFIEDTIME → updatedAt
+ *
+ * NOTE: userId is stored explicitly because CREATORID is set to app credentials
+ * (not the end-user's ZID) when using ZCObject in AppSail.
  *
  * Computed metrics (bmi, smiComputed) are NEVER stored — they are derived
  * server-side in the snapshot endpoint from stored weight/height/smm values.
@@ -21,28 +23,28 @@ data class BodyMetricEntry(
     val unit: String,           // e.g. "kg", "%", "µU/mL"
     val logDate: String,        // YYYY-MM-DD stored as Text
     val notes: String = "",
-    // Catalyst system columns — auto-set, never written in toMap()
-    val createdBy: String = "", // CREATORID
-    val createdAt: String = "", // CREATEDTIME
-    val updatedAt: String = ""  // MODIFIEDTIME
+    val createdBy: String = "", // stored in explicit userId column (CREATORID unreliable in AppSail)
+    val createdAt: String = "", // CREATEDTIME — auto-set by Catalyst
+    val updatedAt: String = ""  // MODIFIEDTIME — auto-set by Catalyst
 )
 
 /**
  * A user-defined custom metric definition.
  *
  * Catalyst DataStore table: CustomMetricDefs
- * User-defined columns: metricKey, label, unit
+ * User-defined columns: metricKey, label, unit, userId (explicit ownership)
  * System columns (auto-provided by Catalyst — do NOT create manually):
  *   ROWID       → id
- *   CREATORID   → createdBy
  *   CREATEDTIME → createdAt
+ *
+ * NOTE: userId is stored explicitly because CREATORID is set to app credentials
+ * (not the end-user's ZID) when using ZCObject in AppSail.
  */
 data class CustomMetricDef(
     val id: Long? = null,
     val metricKey: String,       // e.g. "custom_sgpt" — derived from label
     val label: String,           // e.g. "SGPT" — user-supplied display name
     val unit: String,            // e.g. "U/L" — may be empty string
-    // Catalyst system columns — auto-set, never written in toMap()
-    val createdBy: String = "",  // CREATORID
-    val createdAt: String = ""   // CREATEDTIME
+    val createdBy: String = "",  // stored in explicit userId column (CREATORID unreliable in AppSail)
+    val createdAt: String = ""   // CREATEDTIME — auto-set by Catalyst
 )

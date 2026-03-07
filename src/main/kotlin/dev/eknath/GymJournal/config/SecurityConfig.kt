@@ -27,10 +27,8 @@ class SecurityConfig(private val catalystAuthFilter: CatalystAuthFilter) {
     }
 
     // Protected API endpoints — CatalystAuthFilter reads x-zc-user-id injected by ZGS.
-    // CORS is intentionally disabled in Spring — ZGS (the gateway in front of AppSail)
-    // already adds Access-Control-Allow-Origin. If Spring also adds it, the browser receives
-    // duplicate headers and rejects the response. Let ZGS own CORS entirely.
-    // OPTIONS preflight requests are permitted without auth so the CORS handshake succeeds.
+    // CORS is handled by ZGS — Spring must not add its own CORS headers or they will
+    // duplicate ZGS's headers and cause the browser to reject them.
     @Bean
     @Order(2)
     fun protectedApiChain(http: HttpSecurity): SecurityFilterChain {

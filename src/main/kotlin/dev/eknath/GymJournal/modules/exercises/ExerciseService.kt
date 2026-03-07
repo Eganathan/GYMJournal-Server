@@ -105,12 +105,12 @@ class ExerciseService(
             secondaryMuscles = request.secondaryMuscles,
             equipmentId      = request.equipmentId,
             difficulty       = request.difficulty,
-            instructions     = request.instructions,
+            instructions     = request.instructions.ifEmpty { listOf("Perform with proper form and controlled movement.") },
             tips             = request.tips,
             imageUrl         = request.imageUrl?.takeIf { it.isNotBlank() },
             videoUrl         = request.videoUrl?.takeIf { it.isNotBlank() },
             tags             = request.tags,
-            createdBy        = "",   // set by Catalyst (CREATORID)
+            createdBy        = userId, // stored explicitly in userId column (CREATORID unreliable in AppSail)
             createdAt        = "",   // set by Catalyst (CREATEDTIME)
             updatedAt        = ""    // set by Catalyst (MODIFIEDTIME)
         )
@@ -163,7 +163,7 @@ class ExerciseService(
     // ---------------------------------------------------------------------------
 
     private fun MuscleGroup.toResponse() = MuscleGroupResponse(
-        id          = id ?: 0,
+        id          = (id ?: 0).toString(),
         displayName = displayName,
         shortName   = shortName,
         description = description,
@@ -172,7 +172,7 @@ class ExerciseService(
     )
 
     private fun Equipment.toResponse() = EquipmentResponse(
-        id          = id ?: 0,
+        id          = (id ?: 0).toString(),
         displayName = displayName,
         description = description,
         category    = category,
@@ -180,12 +180,12 @@ class ExerciseService(
     )
 
     private fun Exercise.toResponse() = ExerciseResponse(
-        id               = id ?: 0,
+        id               = (id ?: 0).toString(),
         name             = name,
         description      = description,
-        primaryMuscleId  = primaryMuscleId,
+        primaryMuscleId  = primaryMuscleId.toString(),
         secondaryMuscles = secondaryMuscles,
-        equipmentId      = equipmentId,
+        equipmentId      = equipmentId.toString(),
         difficulty       = difficulty.name,
         instructions     = instructions,
         tips             = tips,
@@ -198,10 +198,10 @@ class ExerciseService(
     )
 
     private fun Exercise.toSummaryResponse() = ExerciseSummaryResponse(
-        id              = id ?: 0,
+        id              = (id ?: 0).toString(),
         name            = name,
-        primaryMuscleId = primaryMuscleId,
-        equipmentId     = equipmentId,
+        primaryMuscleId = primaryMuscleId.toString(),
+        equipmentId     = equipmentId.toString(),
         difficulty      = difficulty.name,
         createdBy       = createdBy
     )

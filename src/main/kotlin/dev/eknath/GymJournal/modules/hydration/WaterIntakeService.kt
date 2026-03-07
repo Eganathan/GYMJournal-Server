@@ -68,7 +68,7 @@ class WaterIntakeService(private val repository: WaterIntakeRepository) {
             notes = request.notes ?: existing.notes
         )
         repository.update(id, updated)
-        return updated.toResponse()
+        return (repository.findById(id) ?: updated).toResponse()
     }
 
     fun deleteEntry(userId: String, id: Long) {
@@ -79,7 +79,7 @@ class WaterIntakeService(private val repository: WaterIntakeRepository) {
     }
 
     private fun WaterIntakeEntry.toResponse() = WaterEntryResponse(
-        id = id ?: 0,
+        id = (id ?: 0).toString(),
         logDateTime = logDateTime.replace(" ", "T"),   // stored as "yyyy-MM-dd HH:mm:ss" → ISO-8601
         amountMl = amountMl,
         notes = notes

@@ -3,7 +3,6 @@ package dev.eknath.GymJournal.modules.workouts
 import com.zc.component.`object`.ZCRowObject
 import dev.eknath.GymJournal.model.domain.WorkoutSet
 import dev.eknath.GymJournal.repository.CatalystDataStoreRepository
-import dev.eknath.GymJournal.util.ZcqlSanitizer
 import org.springframework.stereotype.Repository
 
 private const val TABLE = "WorkoutSets"
@@ -15,45 +14,46 @@ class WorkoutSetRepository(
 
     // ── Queries ───────────────────────────────────────────────────────────────
 
+    /** Looks up a set by ROWID. Returns null if not found or row is blank (non-existent ROWID). */
     fun findById(id: Long): WorkoutSet? =
-        db.getRow(TABLE, id)?.toSet()
+        db.getRow(TABLE, id)?.toSet()?.takeIf { it.userId.isNotBlank() }
 
     /**
      * All sets belonging to a session, ordered by slot then set number.
-     * This is the primary query for building the full session response.
+     *
+     * Uses only a numeric sessionId predicate in ZCQL (numeric comparisons are reliable);
+     * the userId check is applied in-memory as a safety guard.
+     * ZCQL cap is 300 rows — hard limit of 300 sets per session.
      */
-    fun findBySession(sessionId: Long, userId: String): List<WorkoutSet> {
-        val sid = sessionId
-        val uid = ZcqlSanitizer.sanitize(userId)
-        return db.query(
-            "SELECT * FROM $TABLE WHERE sessionId = $sid AND userId = '$uid'" +
-            " ORDER BY orderInSession ASC"
-        ).map { it.toSet() }
-    }
+    fun findBySession(sessionId: Long, userId: String): List<WorkoutSet> =
+        db.query(
+            "SELECT * FROM $TABLE WHERE sessionId = $sessionId" +
+            " ORDER BY orderInSession ASC, setNumber ASC LIMIT 0,300"
+        ).map { it.toSet() }.filter { it.userId == userId }
 
     /**
      * Completed EXERCISE sets for [exerciseId] belonging to [userId], most recent first.
-     * The `completedAt != ''` condition is pushed to ZCQL so the 300-row budget is not
-     * wasted on incomplete (pre-populated) sets.
-     * [offset] / [limit] support DB-level pagination.
+     *
+     * ZCQL WHERE on user-created string columns is unreliable in AppSail — fetch by exerciseId
+     * (numeric comparison, reliable) and filter userId + completedAt in-memory.
+     * [offset] / [limit] applied after in-memory filtering.
      */
-    fun findExerciseHistory(userId: String, exerciseId: Long, offset: Int = 0, limit: Int = 100): List<WorkoutSet> {
-        val uid = ZcqlSanitizer.sanitize(userId)
-        return db.query(
-            "SELECT * FROM $TABLE" +
-            " WHERE userId = '$uid' AND exerciseId = $exerciseId" +
-            " AND itemType = 'EXERCISE' AND completedAt != ''" +
-            " ORDER BY completedAt DESC LIMIT $offset,$limit"
+    fun findExerciseHistory(userId: String, exerciseId: Long, offset: Int = 0, limit: Int = 100): List<WorkoutSet> =
+        db.query(
+            "SELECT * FROM $TABLE WHERE exerciseId = $exerciseId" +
+            " AND itemType = 'EXERCISE'" +
+            " ORDER BY completedAt DESC LIMIT 0,300"
         ).map { it.toSet() }
-    }
+         .filter { it.userId == userId && it.completedAt.isNotBlank() }
+         .drop(offset)
+         .take(limit)
 
-    fun countExerciseHistory(userId: String, exerciseId: Long): Long {
-        val uid = ZcqlSanitizer.sanitize(userId)
-        return db.count(
-            TABLE,
-            "userId = '$uid' AND exerciseId = $exerciseId AND itemType = 'EXERCISE' AND completedAt != ''"
-        )
-    }
+    fun countExerciseHistory(userId: String, exerciseId: Long): Long =
+        db.query(
+            "SELECT * FROM $TABLE WHERE exerciseId = $exerciseId AND itemType = 'EXERCISE' LIMIT 0,300"
+        ).map { it.toSet() }
+         .count { it.userId == userId && it.completedAt.isNotBlank() }
+         .toLong()
 
     // ── Mutations ─────────────────────────────────────────────────────────────
 
@@ -84,7 +84,7 @@ class WorkoutSetRepository(
         id              = get("ROWID")?.toString()?.toLongOrNull(),
         sessionId       = get("sessionId")?.toString()?.toLongOrNull() ?: 0L,
         userId          = get("userId")?.toString() ?: "",
-        exerciseId      = get("exerciseId")?.toString()?.toLongOrNull() ?: 0L,
+        exerciseId      = get("exerciseId")?.toString()?.toLongOrNull(),  // null for REST/CARDIO
         exerciseName    = get("exerciseName")?.toString() ?: "",
         itemType        = get("itemType")?.toString() ?: "EXERCISE",
         orderInSession  = get("orderInSession")?.toString()?.toIntOrNull() ?: 1,
@@ -105,7 +105,7 @@ class WorkoutSetRepository(
         // Only user-defined columns — CREATORID, CREATEDTIME, MODIFIEDTIME are set by Catalyst automatically
         put("sessionId", sessionId)
         put("userId", userId)
-        put("exerciseId", exerciseId)
+        exerciseId?.let { put("exerciseId", it) }   // Omit for REST/CARDIO — FK col is non-mandatory; 0 is invalid
         put("exerciseName", exerciseName)
         put("itemType", itemType)
         put("orderInSession", orderInSession)

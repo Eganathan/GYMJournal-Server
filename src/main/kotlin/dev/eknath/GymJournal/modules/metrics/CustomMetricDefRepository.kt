@@ -19,7 +19,7 @@ class CustomMetricDefRepository(private val db: CatalystDataStoreRepository) {
     fun findAll(userId: String): List<CustomMetricDef> =
         db.query(
             "SELECT * FROM $TABLE" +
-            " WHERE CREATORID = '${ZcqlSanitizer.sanitize(userId)}'" +
+            " WHERE userId = '${ZcqlSanitizer.sanitize(userId)}'" +
             " ORDER BY label ASC"
         ).map { it.toDef() }
 
@@ -27,7 +27,7 @@ class CustomMetricDefRepository(private val db: CatalystDataStoreRepository) {
     fun findByKey(userId: String, metricKey: String): CustomMetricDef? =
         db.queryOne(
             "SELECT * FROM $TABLE" +
-            " WHERE CREATORID = '${ZcqlSanitizer.sanitize(userId)}'" +
+            " WHERE userId = '${ZcqlSanitizer.sanitize(userId)}'" +
             " AND metricKey = '${ZcqlSanitizer.sanitize(metricKey)}'"
         )?.toDef()
 
@@ -56,13 +56,15 @@ class CustomMetricDefRepository(private val db: CatalystDataStoreRepository) {
         metricKey = get("metricKey")?.toString() ?: "",
         label     = get("label")?.toString() ?: "",
         unit      = get("unit")?.toString() ?: "",
-        // Catalyst system columns — read-only
-        createdBy = get("CREATORID")?.toString() ?: "",
+        // Prefer explicit userId column; CREATORID is unreliable in AppSail (app credentials, not user)
+        createdBy = get("userId")?.toString() ?: "",
         createdAt = get("CREATEDTIME")?.toString() ?: ""
     )
 
     private fun CustomMetricDef.toMap(): Map<String, Any> = buildMap {
-        // Only user-defined columns — CREATORID and CREATEDTIME are set by Catalyst automatically
+        // userId stored explicitly — CREATORID is unreliable in AppSail (app credentials, not user)
+        // CREATEDTIME is still auto-set by Catalyst
+        put("userId", createdBy)
         put("metricKey", metricKey)
         put("label", label)
         put("unit", unit)

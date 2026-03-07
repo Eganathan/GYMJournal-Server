@@ -16,7 +16,7 @@ data class UpdateWaterEntryRequest(
 )
 
 data class WaterEntryResponse(
-    val id: Long,
+    val id: String,
     val logDateTime: String,
     val amountMl: Int,
     val notes: String

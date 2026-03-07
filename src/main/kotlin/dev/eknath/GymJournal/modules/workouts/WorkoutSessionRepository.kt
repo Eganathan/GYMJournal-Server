@@ -3,7 +3,6 @@ package dev.eknath.GymJournal.modules.workouts
 import com.zc.component.`object`.ZCRowObject
 import dev.eknath.GymJournal.model.domain.WorkoutSession
 import dev.eknath.GymJournal.repository.CatalystDataStoreRepository
-import dev.eknath.GymJournal.util.ZcqlSanitizer
 import org.springframework.stereotype.Repository
 
 private const val TABLE = "WorkoutSessions"
@@ -15,20 +14,32 @@ class WorkoutSessionRepository(
 
     // ── Queries ───────────────────────────────────────────────────────────────
 
+    /**
+     * Looks up a session by ROWID using ZCObject.getRow (reliable ZCObject path).
+     * Returns null if the row doesn't exist (ZCObject returns an empty row for non-existent
+     * ROWIDs — takeIf filters those out via blank userId check).
+     *
+     * Previously we observed FORBIDDEN errors due to JS BigInt precision loss: the client
+     * was sending a rounded ID (e.g. 11585000000717124 instead of 11585000000717125).
+     * That root cause is now fixed — all response IDs are serialised as JSON strings.
+     */
     fun findById(id: Long): WorkoutSession? =
-        db.getRow(TABLE, id)?.toSession()
+        db.getRow(TABLE, id)?.toSession()?.takeIf { it.userId.isNotBlank() }
 
     /**
-     * Returns the calling user's sessions, ordered by [startedAt] DESC (actual workout
-     * time, not insert time — correctly places backdated sessions in chronological order).
+     * Fetches ALL rows without a userId WHERE clause and filters in-memory.
      *
-     * Filters:
-     *   [status]    — optional; "IN_PROGRESS" or "COMPLETED"
-     *   [startDate] — optional; YYYY-MM-DD; sessions with startedAt on or after this date
-     *   [endDate]   — optional; YYYY-MM-DD; sessions with startedAt on or before this date
+     * IMPORTANT: ZCQL WHERE on user-created Var Char columns silently returns 0 rows in AppSail.
+     * All user-based filtering must happen in-memory after a full table fetch (capped at 300 by ZCQL).
+     */
+    private fun fetchAllRows(): List<WorkoutSession> =
+        db.query("SELECT * FROM $TABLE ORDER BY startedAt DESC LIMIT 0,300").map { it.toSession() }
+
+    /**
+     * Returns the calling user's sessions, ordered by startedAt DESC.
+     * Filters (userId, status, date range) are applied in-memory after fetching all rows.
      *
-     * Pagination is applied at the ZCQL level via LIMIT [offset],[limit].
-     * Max 4 WHERE conditions (userId + status + startDate + endDate) — within ZCQL limit of 5.
+     * Pagination ([offset]/[limit]) is applied to the filtered set.
      */
     fun findByUser(
         userId: String,
@@ -37,12 +48,11 @@ class WorkoutSessionRepository(
         endDate: String?,
         offset: Int,
         limit: Int
-    ): List<WorkoutSession> {
-        val where = buildWhereClause(userId, status, startDate, endDate)
-        return db.query(
-            "SELECT * FROM $TABLE$where ORDER BY startedAt DESC LIMIT $offset,$limit"
-        ).map { it.toSession() }
-    }
+    ): List<WorkoutSession> =
+        fetchAllRows()
+            .filter { matchesFilters(it, userId, status, startDate, endDate) }
+            .drop(offset)
+            .take(limit)
 
     /**
      * Returns the total count matching the same filters as [findByUser].
@@ -53,9 +63,21 @@ class WorkoutSessionRepository(
         status: String?,
         startDate: String?,
         endDate: String?
-    ): Long {
-        val condition = buildCondition(userId, status, startDate, endDate)
-        return db.count(TABLE, condition)
+    ): Long =
+        fetchAllRows().count { matchesFilters(it, userId, status, startDate, endDate) }.toLong()
+
+    private fun matchesFilters(
+        s: WorkoutSession,
+        userId: String,
+        status: String?,
+        startDate: String?,
+        endDate: String?
+    ): Boolean {
+        if (s.userId != userId) return false
+        if (status != null && s.status != status) return false
+        if (startDate != null && s.startedAt.isNotBlank() && s.startedAt.take(10) < startDate) return false
+        if (endDate   != null && s.startedAt.isNotBlank() && s.startedAt.take(10) > endDate)   return false
+        return true
     }
 
     // ── Mutations ─────────────────────────────────────────────────────────────
@@ -101,28 +123,4 @@ class WorkoutSessionRepository(
         put("notes", notes)
     }
 
-    // ── Private helpers ───────────────────────────────────────────────────────
-
-    /** Builds the " WHERE ..." clause for both findByUser and countByUser. */
-    private fun buildWhereClause(
-        userId: String,
-        status: String?,
-        startDate: String?,
-        endDate: String?
-    ): String = " WHERE ${buildCondition(userId, status, startDate, endDate)}"
-
-    private fun buildCondition(
-        userId: String,
-        status: String?,
-        startDate: String?,
-        endDate: String?
-    ): String {
-        val conditions = mutableListOf<String>()
-        conditions.add("userId = '${ZcqlSanitizer.sanitize(userId)}'")
-        status?.let    { conditions.add("status = '${ZcqlSanitizer.sanitize(it)}'") }
-        // startedAt is a DateTime column — compare using full datetime string
-        startDate?.let { conditions.add("startedAt >= '${ZcqlSanitizer.sanitize(it)} 00:00:00'") }
-        endDate?.let   { conditions.add("startedAt <= '${ZcqlSanitizer.sanitize(it)} 23:59:59'") }
-        return conditions.joinToString(" AND ")
-    }
 }

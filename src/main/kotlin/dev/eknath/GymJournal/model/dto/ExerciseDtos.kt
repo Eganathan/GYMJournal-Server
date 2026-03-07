@@ -2,7 +2,6 @@ package dev.eknath.GymJournal.model.dto
 
 import dev.eknath.GymJournal.model.domain.Difficulty
 import jakarta.validation.constraints.NotBlank
-import jakarta.validation.constraints.NotEmpty
 import jakarta.validation.constraints.Size
 
 // ---------------------------------------------------------------------------
@@ -18,7 +17,7 @@ data class CreateMuscleGroupRequest(
 )
 
 data class MuscleGroupResponse(
-    val id: Long,
+    val id: String,
     val displayName: String,
     val shortName: String,
     val description: String,
@@ -34,7 +33,7 @@ data class CreateEquipmentRequest(
 )
 
 data class EquipmentResponse(
-    val id: Long,
+    val id: String,
     val displayName: String,
     val description: String,
     val category: String,
@@ -52,7 +51,7 @@ data class CreateExerciseRequest(
     val secondaryMuscles: List<String> = emptyList(),
     val equipmentId: Long,
     val difficulty: Difficulty = Difficulty.BEGINNER,
-    @field:NotEmpty val instructions: List<String>,
+    val instructions: List<String> = emptyList(),
     val tips: List<String> = emptyList(),
     val imageUrl: String? = null,
     val videoUrl: String? = null,
@@ -79,12 +78,12 @@ data class UpdateExerciseRequest(
 
 /** Full exercise detail — returned by GET /{id} and POST / PUT */
 data class ExerciseResponse(
-    val id: Long,
+    val id: String,
     val name: String,
     val description: String,
-    val primaryMuscleId: Long,
+    val primaryMuscleId: String,
     val secondaryMuscles: List<String>,
-    val equipmentId: Long,
+    val equipmentId: String,
     val difficulty: String,
     val instructions: List<String>,
     val tips: List<String>,
@@ -98,10 +97,10 @@ data class ExerciseResponse(
 
 /** Compact item used in paginated list results */
 data class ExerciseSummaryResponse(
-    val id: Long,
+    val id: String,
     val name: String,
-    val primaryMuscleId: Long,
-    val equipmentId: Long,
+    val primaryMuscleId: String,
+    val equipmentId: String,
     val difficulty: String,
     val createdBy: String
 )

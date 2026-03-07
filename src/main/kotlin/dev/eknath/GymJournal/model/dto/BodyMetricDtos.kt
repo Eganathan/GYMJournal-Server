@@ -42,7 +42,7 @@ data class UpdateMetricEntryRequest(
 
 /** Full metric entry, returned from create, update, and list-by-date calls. */
 data class MetricEntryResponse(
-    val id: Long,
+    val id: String,
     val metricType: String,
     val value: Double,
     val unit: String,
@@ -73,7 +73,7 @@ data class CreateCustomMetricRequest(
 )
 
 data class CustomMetricDefResponse(
-    val id: Long,
+    val id: String,
     val metricKey: String,
     val label: String,
     val unit: String

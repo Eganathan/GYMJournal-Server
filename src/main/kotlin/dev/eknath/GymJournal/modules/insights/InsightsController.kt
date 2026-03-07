@@ -5,11 +5,11 @@ import dev.eknath.GymJournal.util.currentUserId
 import org.springframework.web.bind.annotation.*
 
 @RestController
-@RequestMapping("/api/v1/metrics")
+@RequestMapping("/api/v1/body-metrics")
 class InsightsController(private val service: InsightsService) {
 
     /**
-     * GET /api/v1/metrics/insights
+     * GET /api/v1/body-metrics/insights
      *
      * Returns health insights derived from the calling user's most-recent
      * metric values. Each insight carries a status (OK / BORDERLINE / WARNING /

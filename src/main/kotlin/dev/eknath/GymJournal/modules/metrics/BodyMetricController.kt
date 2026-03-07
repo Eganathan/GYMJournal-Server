@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.*
 import java.time.LocalDate
 
 @RestController
-@RequestMapping("/api/v1/metrics")
+@RequestMapping("/api/v1/body-metrics")
 class BodyMetricController(private val service: BodyMetricService) {
 
     // ---------------------------------------------------------------------------
@@ -17,7 +17,7 @@ class BodyMetricController(private val service: BodyMetricService) {
     // ---------------------------------------------------------------------------
 
     /**
-     * POST /api/v1/metrics/entries
+     * POST /api/v1/body-metrics/entries
      * Batch log one or more metric measurements for a date.
      * Computed metric types (bmi, smiComputed) are rejected with 400.
      */
@@ -27,7 +27,7 @@ class BodyMetricController(private val service: BodyMetricService) {
         ApiResponse.ok(service.batchLog(currentUserId(), request))
 
     /**
-     * GET /api/v1/metrics/entries?date=YYYY-MM-DD
+     * GET /api/v1/body-metrics/entries?date=YYYY-MM-DD
      * All entries logged by the calling user on the given date.
      * Defaults to today if `date` is not supplied.
      */
@@ -40,18 +40,18 @@ class BodyMetricController(private val service: BodyMetricService) {
         )
 
     /**
-     * PUT /api/v1/metrics/entries/{id}
+     * PUT /api/v1/body-metrics/entries/{id}
      * Update a single metric entry. Only the creator may edit (403 otherwise).
      */
     @PutMapping("/entries/{id}")
     fun updateEntry(
         @PathVariable id: Long,
-        @RequestBody request: UpdateMetricEntryRequest
+        @Valid @RequestBody request: UpdateMetricEntryRequest
     ): ApiResponse<*> =
         ApiResponse.ok(service.updateEntry(currentUserId(), id, request))
 
     /**
-     * DELETE /api/v1/metrics/entries/{id}
+     * DELETE /api/v1/body-metrics/entries/{id}
      * Delete a single metric entry. Only the creator may delete (403 otherwise).
      */
     @DeleteMapping("/entries/{id}")
@@ -64,7 +64,7 @@ class BodyMetricController(private val service: BodyMetricService) {
     // ---------------------------------------------------------------------------
 
     /**
-     * GET /api/v1/metrics/{metricType}/history?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+     * GET /api/v1/body-metrics/{metricType}/history?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
      * All entries for one metric type sorted by logDate ASC. Drives trend charts.
      * Defaults: startDate = 90 days ago, endDate = today.
      */
@@ -77,7 +77,7 @@ class BodyMetricController(private val service: BodyMetricService) {
         ApiResponse.ok(service.getHistory(currentUserId(), metricType, startDate, endDate))
 
     /**
-     * GET /api/v1/metrics/snapshot
+     * GET /api/v1/body-metrics/snapshot
      * Latest value per metric type (dashboard).
      * Also appends server-side computed bmi and smiComputed when source data is available.
      */

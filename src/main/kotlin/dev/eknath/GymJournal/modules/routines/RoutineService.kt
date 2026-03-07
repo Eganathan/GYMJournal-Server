@@ -172,7 +172,7 @@ class RoutineService(
     // ── Mappers ───────────────────────────────────────────────────────────────
 
     private fun Routine.toResponse() = RoutineResponse(
-        id               = id!!,
+        id               = id!!.toString(),
         name             = name,
         description      = description,
         items            = items,
@@ -185,7 +185,7 @@ class RoutineService(
     )
 
     private fun Routine.toSummaryResponse() = RoutineSummaryResponse(
-        id               = id!!,
+        id               = id!!.toString(),
         name             = name,
         description      = description,
         estimatedMinutes = estimatedMinutes,
