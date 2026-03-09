@@ -26,7 +26,7 @@ class BodyMetricService(
      * Rejects computed metric types (bmi, smiComputed) with a 400-triggering exception.
      * Validates that each logDate is in YYYY-MM-DD format.
      */
-    fun batchLog(userId: String, request: BatchLogMetricRequest): List<MetricEntryResponse> {
+    fun batchLog(userId: Long, request: BatchLogMetricRequest): List<MetricEntryResponse> {
         return request.entries.map { req ->
             if (req.metricType in COMPUTED_TYPES)
                 throw IllegalArgumentException(
@@ -56,7 +56,7 @@ class BodyMetricService(
      * Returns all entries for [userId] on [date] (YYYY-MM-DD), sorted by metricType.
      * Used to pre-fill the log form when revisiting a past date.
      */
-    fun getEntriesForDate(userId: String, date: String): List<MetricEntryResponse> =
+    fun getEntriesForDate(userId: Long, date: String): List<MetricEntryResponse> =
         entryRepo.findByDate(userId, date).map { it.toResponse() }
 
     /**
@@ -64,7 +64,7 @@ class BodyMetricService(
      * Defaults: startDate = 90 days ago, endDate = today.
      */
     fun getHistory(
-        userId: String,
+        userId: Long,
         metricType: String,
         startDate: String?,
         endDate: String?
@@ -87,7 +87,7 @@ class BodyMetricService(
      *    Both are omitted if source data is unavailable.
      *    logDate for a computed item = max(source1.logDate, source2.logDate).
      */
-    fun getSnapshot(userId: String): List<MetricSnapshotItem> {
+    fun getSnapshot(userId: Long): List<MetricSnapshotItem> {
         val recent = entryRepo.findRecent(userId)
 
         // Group by metricType — entries are DESC by logDate, so first in each group is most-recent
@@ -123,7 +123,7 @@ class BodyMetricService(
      * Updates the given entry. Only the creator may update.
      * Validates logDate format if supplied.
      */
-    fun updateEntry(userId: String, id: Long, request: UpdateMetricEntryRequest): MetricEntryResponse {
+    fun updateEntry(userId: Long, id: Long, request: UpdateMetricEntryRequest): MetricEntryResponse {
         val existing = entryRepo.findById(id)
             ?: throw NoSuchElementException("Metric entry $id not found")
         if (existing.createdBy != userId)
@@ -145,7 +145,7 @@ class BodyMetricService(
     }
 
     /** Deletes the given entry. Only the creator may delete. */
-    fun deleteEntry(userId: String, id: Long) {
+    fun deleteEntry(userId: Long, id: Long) {
         val existing = entryRepo.findById(id)
             ?: throw NoSuchElementException("Metric entry $id not found")
         if (existing.createdBy != userId)
@@ -157,7 +157,7 @@ class BodyMetricService(
     // Custom metric definitions
     // ---------------------------------------------------------------------------
 
-    fun listCustomDefs(userId: String): List<CustomMetricDefResponse> =
+    fun listCustomDefs(userId: Long): List<CustomMetricDefResponse> =
         defRepo.findAll(userId).map { it.toResponse() }
 
     /**
@@ -166,7 +166,7 @@ class BodyMetricService(
      *   "custom_" + label.lowercase().replace(Regex("[^a-z0-9]"), "_")
      * Returns 400 if a definition with the same key already exists for this user.
      */
-    fun addCustomDef(userId: String, request: CreateCustomMetricRequest): CustomMetricDefResponse {
+    fun addCustomDef(userId: Long, request: CreateCustomMetricRequest): CustomMetricDefResponse {
         val label = request.label.trim()
         val key   = deriveMetricKey(label)
         if (defRepo.findByKey(userId, key) != null)
@@ -180,7 +180,7 @@ class BodyMetricService(
     /**
      * Deletes the custom metric definition and cascade-deletes all entries with that metricType.
      */
-    fun deleteCustomDef(userId: String, key: String) {
+    fun deleteCustomDef(userId: Long, key: String) {
         val def = defRepo.findByKey(userId, key)
             ?: throw NoSuchElementException("Custom metric definition '$key' not found")
         val defId = def.id

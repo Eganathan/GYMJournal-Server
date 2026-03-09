@@ -3,7 +3,6 @@ package dev.eknath.GymJournal.modules.metrics
 import com.zc.component.`object`.ZCRowObject
 import dev.eknath.GymJournal.model.domain.BodyMetricEntry
 import dev.eknath.GymJournal.repository.CatalystDataStoreRepository
-import dev.eknath.GymJournal.util.ZcqlSanitizer
 import org.springframework.stereotype.Repository
 
 private const val TABLE = "BodyMetricEntries"
@@ -18,63 +17,48 @@ class BodyMetricRepository(private val db: CatalystDataStoreRepository) {
     /**
      * Returns all entries logged by [userId] on [date] (YYYY-MM-DD),
      * sorted by metricType ASC. Used to pre-fill the log form on revisit.
+     *
+     * Fetches all rows without a WHERE clause and filters in-memory.
+     * ZCQL WHERE on user-created Var Char columns (userId) is unreliable
+     * in AppSail — the filter is silently ignored, returning all users' data.
      */
-    fun findByDate(userId: String, date: String): List<BodyMetricEntry> =
-        db.query(
-            "SELECT * FROM $TABLE" +
-            " WHERE userId = '${ZcqlSanitizer.sanitize(userId)}'" +
-            " AND logDate = '${ZcqlSanitizer.sanitize(date)}'" +
-            " ORDER BY metricType ASC"
-        ).map { it.toEntry() }
+    fun findByDate(userId: Long, date: String): List<BodyMetricEntry> =
+        db.query("SELECT * FROM $TABLE WHERE USER_ID = $userId LIMIT 0,300")
+            .map { it.toEntry() }
+            .filter { it.logDate == date }
+            .sortedBy { it.metricType }
 
-    /**
-     * Returns history for a single [metricType] within a date range, sorted ASC.
-     * Uses 4 WHERE conditions (userId + metricType + startDate + endDate) —
-     * this is at the ZCQL 5-condition limit. Do NOT add a 5th condition here.
-     */
     fun findByType(
-        userId: String,
+        userId: Long,
         metricType: String,
         startDate: String,
         endDate: String
     ): List<BodyMetricEntry> =
-        db.query(
-            "SELECT * FROM $TABLE" +
-            " WHERE userId = '${ZcqlSanitizer.sanitize(userId)}'" +
-            " AND metricType = '${ZcqlSanitizer.sanitize(metricType)}'" +
-            " AND logDate >= '${ZcqlSanitizer.sanitize(startDate)}'" +
-            " AND logDate <= '${ZcqlSanitizer.sanitize(endDate)}'" +
-            " ORDER BY logDate ASC LIMIT 0,300"
-        ).map { it.toEntry() }
+        db.query("SELECT * FROM $TABLE WHERE USER_ID = $userId LIMIT 0,300")
+            .map { it.toEntry() }
+            .filter { it.metricType == metricType && it.logDate >= startDate && it.logDate <= endDate }
+            .sortedBy { it.logDate }
+            .take(300)
+
+    fun findRecent(userId: Long): List<BodyMetricEntry> =
+        db.query("SELECT * FROM $TABLE WHERE USER_ID = $userId LIMIT 0,300")
+            .map { it.toEntry() }
+            .sortedByDescending { it.logDate }
+            .take(300)
 
     /**
-     * Returns up to 300 most-recent entries for [userId], ordered by logDate DESC.
-     * Used to compute the snapshot in-memory — group by metricType, take first per type.
-     */
-    fun findRecent(userId: String): List<BodyMetricEntry> =
-        db.query(
-            "SELECT * FROM $TABLE" +
-            " WHERE userId = '${ZcqlSanitizer.sanitize(userId)}'" +
-            " ORDER BY logDate DESC LIMIT 0,300"
-        ).map { it.toEntry() }
-
-    /**
-     * Returns ALL entries for [userId] matching [metricType], paginating through the
-     * 300-row ZCQL limit in a loop until the full dataset is fetched.
+     * Pages through all entries for [userId] matching [metricType].
+     * USER_ID is BigInt so the ZCQL WHERE is reliable; metricType is filtered in-memory.
      * Used to cascade-delete all entries when a custom metric definition is removed.
      */
-    fun findAllByType(userId: String, metricType: String): List<BodyMetricEntry> {
-        val uid = ZcqlSanitizer.sanitize(userId)
-        val mt  = ZcqlSanitizer.sanitize(metricType)
+    fun findAllByType(userId: Long, metricType: String): List<BodyMetricEntry> {
         val all = mutableListOf<BodyMetricEntry>()
         var offset = 0
         while (true) {
             val batch = db.query(
-                "SELECT * FROM $TABLE" +
-                " WHERE userId = '$uid' AND metricType = '$mt'" +
-                " LIMIT $offset,300"
+                "SELECT * FROM $TABLE WHERE USER_ID = $userId LIMIT $offset,300"
             ).map { it.toEntry() }
-            all.addAll(batch)
+            all.addAll(batch.filter { it.metricType == metricType })
             if (batch.size < 300) break
             offset += 300
         }
@@ -100,6 +84,10 @@ class BodyMetricRepository(private val db: CatalystDataStoreRepository) {
     fun delete(id: Long) = db.delete(TABLE, id)
 
     // ---------------------------------------------------------------------------
+    // Private helpers
+    // ---------------------------------------------------------------------------
+
+    // ---------------------------------------------------------------------------
     // Mappers
     // ---------------------------------------------------------------------------
 
@@ -111,7 +99,7 @@ class BodyMetricRepository(private val db: CatalystDataStoreRepository) {
         logDate    = get("logDate")?.toString() ?: "",
         notes      = get("notes")?.toString() ?: "",
         // Catalyst system columns — read-only
-        createdBy  = get("userId")?.toString() ?: "",
+        createdBy  = get("USER_ID")?.toString()?.toLongOrNull() ?: 0L,
         createdAt  = get("CREATEDTIME")?.toString() ?: "",
         updatedAt  = get("MODIFIEDTIME")?.toString() ?: ""
     )
@@ -119,7 +107,7 @@ class BodyMetricRepository(private val db: CatalystDataStoreRepository) {
     private fun BodyMetricEntry.toMap(): Map<String, Any> = buildMap {
         // userId stored explicitly — CREATORID is unreliable in AppSail (app credentials, not user)
         // CREATEDTIME, MODIFIEDTIME still auto-set by Catalyst
-        put("userId", createdBy)
+        put("USER_ID", createdBy)
         put("metricType", metricType)
         put("value", value)
         put("unit", unit)

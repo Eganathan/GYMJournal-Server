@@ -1,5 +1,6 @@
 package dev.eknath.GymJournal.modules.hydration
 
+import com.zc.component.users.ZCUser
 import dev.eknath.GymJournal.model.dto.LogWaterRequest
 import dev.eknath.GymJournal.model.dto.UpdateWaterEntryRequest
 import dev.eknath.GymJournal.util.ApiResponse
@@ -22,6 +23,7 @@ class WaterIntakeController(private val service: WaterIntakeService) {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     fun logWater(@Valid @RequestBody request: LogWaterRequest): ApiResponse<*> {
+
         val entry = service.logWater(currentUserId(), request)
         return ApiResponse.ok(entry)
     }

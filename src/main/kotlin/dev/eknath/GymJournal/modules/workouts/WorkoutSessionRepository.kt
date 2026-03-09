@@ -24,56 +24,43 @@ class WorkoutSessionRepository(
      * That root cause is now fixed — all response IDs are serialised as JSON strings.
      */
     fun findById(id: Long): WorkoutSession? =
-        db.getRow(TABLE, id)?.toSession()?.takeIf { it.userId.isNotBlank() }
+        db.getRow(TABLE, id)?.toSession()?.takeIf { it.userId != 0L }
 
     /**
-     * Fetches ALL rows without a userId WHERE clause and filters in-memory.
-     *
-     * IMPORTANT: ZCQL WHERE on user-created Var Char columns silently returns 0 rows in AppSail.
-     * All user-based filtering must happen in-memory after a full table fetch (capped at 300 by ZCQL).
-     */
-    private fun fetchAllRows(): List<WorkoutSession> =
-        db.query("SELECT * FROM $TABLE ORDER BY startedAt DESC LIMIT 0,300").map { it.toSession() }
-
-    /**
-     * Returns the calling user's sessions, ordered by startedAt DESC.
-     * Filters (userId, status, date range) are applied in-memory after fetching all rows.
-     *
-     * Pagination ([offset]/[limit]) is applied to the filtered set.
+     * Fetches sessions for [userId] using a ZCQL BigInt WHERE — reliable because USER_ID is BigInt.
+     * Status and date-range filters are applied in-memory (string columns, unreliable in ZCQL).
      */
     fun findByUser(
-        userId: String,
+        userId: Long,
         status: String?,
         startDate: String?,
         endDate: String?,
         offset: Int,
         limit: Int
     ): List<WorkoutSession> =
-        fetchAllRows()
-            .filter { matchesFilters(it, userId, status, startDate, endDate) }
+        db.query("SELECT * FROM $TABLE WHERE USER_ID = $userId ORDER BY startedAt DESC LIMIT 0,300")
+            .map { it.toSession() }
+            .filter { matchesStringFilters(it, status, startDate, endDate) }
             .drop(offset)
             .take(limit)
 
-    /**
-     * Returns the total count matching the same filters as [findByUser].
-     * Used to compute the [ApiMeta.total] field for paginated list responses.
-     */
     fun countByUser(
-        userId: String,
+        userId: Long,
         status: String?,
         startDate: String?,
         endDate: String?
     ): Long =
-        fetchAllRows().count { matchesFilters(it, userId, status, startDate, endDate) }.toLong()
+        db.query("SELECT * FROM $TABLE WHERE USER_ID = $userId LIMIT 0,300")
+            .map { it.toSession() }
+            .count { matchesStringFilters(it, status, startDate, endDate) }
+            .toLong()
 
-    private fun matchesFilters(
+    private fun matchesStringFilters(
         s: WorkoutSession,
-        userId: String,
         status: String?,
         startDate: String?,
         endDate: String?
     ): Boolean {
-        if (s.userId != userId) return false
         if (status != null && s.status != status) return false
         if (startDate != null && s.startedAt.isNotBlank() && s.startedAt.take(10) < startDate) return false
         if (endDate   != null && s.startedAt.isNotBlank() && s.startedAt.take(10) > endDate)   return false
@@ -98,7 +85,7 @@ class WorkoutSessionRepository(
 
     private fun ZCRowObject.toSession() = WorkoutSession(
         id          = get("ROWID")?.toString()?.toLongOrNull(),
-        userId      = get("userId")?.toString() ?: "",
+        userId      = get("USER_ID")?.toString()?.toLongOrNull() ?: 0L,
         routineId   = get("routineId")?.toString()?.toLongOrNull() ?: 0L,
         routineName = get("routineName")?.toString() ?: "",
         name        = get("name")?.toString() ?: "",
@@ -111,7 +98,7 @@ class WorkoutSessionRepository(
     )
 
     private fun WorkoutSession.toMap(): Map<String, Any> = buildMap {
-        put("userId", userId)
+        put("USER_ID", userId)
         put("routineId", routineId)
         put("routineName", routineName)
         put("name", name)

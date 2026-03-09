@@ -1,12 +1,9 @@
 package dev.eknath.GymJournal.model.dto
 
 import jakarta.validation.constraints.Min
-import jakarta.validation.constraints.NotBlank
-import jakarta.validation.constraints.Pattern
 
 data class LogWaterRequest(
     @field:Min(1) val amountMl: Int,
-    val logDateTime: String? = null,   // optional; defaults to now if not provided
     val notes: String = ""
 )
 

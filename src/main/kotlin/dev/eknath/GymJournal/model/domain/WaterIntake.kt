@@ -10,10 +10,10 @@ package dev.eknath.GymJournal.model.domain
  */
 data class WaterIntakeEntry(
     val id: Long? = null,
-    val userId: String,
-    val logDateTime: String,   // ISO-8601: "2025-01-15T08:30:00"
+    val userId: Long,
     val amountMl: Int,
-    val notes: String = ""
+    val notes: String = "",
+    val createdAt: String = ""  // Catalyst CREATEDTIME — auto-set on insert, read-only
 )
 
 /**

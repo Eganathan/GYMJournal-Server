@@ -45,7 +45,7 @@ class AdminController(
         // This prevents re-running expensive seeding logic on repeated accidental calls.
         val muscleCount   = muscleGroupRepo.findAll().size
         val equipCount    = equipmentRepo.findAll().size
-        val exerciseCount = exerciseRepo.findAll("", null, null, null, false).size
+        val exerciseCount = exerciseRepo.findAll(0L, null, null, null, false).size
         if (muscleCount > 0 && equipCount > 0 && exerciseCount > 0) {
             return ApiResponse.ok(
                 mapOf(
@@ -82,7 +82,7 @@ class AdminController(
      */
     @PostMapping("/force-seed")
     fun forceSeed(): ApiResponse<*> {
-        val ownerId = "10119736618"
+        val ownerId = 10119736618L
         val musclesSeeded   = seedMuscleGroups()
         val equipmentSeeded = seedEquipment()
         val exercisesSeeded = seedExercises(creatorId = ownerId)
@@ -138,7 +138,7 @@ class AdminController(
             // In-memory filtering catches both NULL and empty-string cases.
             val allRows = db.query("SELECT * FROM $table LIMIT 0,300")
             val orphaned = allRows.filter { row ->
-                val uid = row.get("userId")?.toString()
+                val uid = row.get("USER_ID")?.toString()
                 uid.isNullOrBlank() || uid == "null"
             }
             var updated = 0
@@ -146,7 +146,7 @@ class AdminController(
                 val rowId = row.get("ROWID")?.toString()?.toLongOrNull()
                 if (rowId != null) {
                     try {
-                        db.update(table, rowId, mapOf("userId" to userId))
+                        db.update(table, rowId, mapOf("USER_ID" to userId))
                         updated++
                     } catch (_: Exception) {
                         // log and continue — don't abort entire migration for one row
@@ -204,7 +204,7 @@ class AdminController(
      *   for shared library exercises; pass a real user ZID via [forceSeed] to attribute
      *   exercises to a specific user.
      */
-    private fun seedExercises(creatorId: String = "system"): Int {
+    private fun seedExercises(creatorId: Long = 0L): Int {
         // Build name → id lookup maps from whatever is in the DB right now
         val muscleNameToId = muscleGroupRepo.findAll().mapNotNull { g ->
             g.id?.let { g.displayName to it }
@@ -214,7 +214,7 @@ class AdminController(
         }.toMap()
 
         // Existing exercise names — skip any that are already present
-        val existingNames = exerciseRepo.findAll("", null, null, null, false)
+        val existingNames = exerciseRepo.findAll(0L, null, null, null, false)
             .map { it.name }.toSet()
 
         // Load the full merged exercise data from classpath

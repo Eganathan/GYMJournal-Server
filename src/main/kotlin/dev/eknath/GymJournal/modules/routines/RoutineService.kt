@@ -29,7 +29,7 @@ class RoutineService(
      *   [ApiMeta.total] reflects the post-filter count (capped at 300 raw rows).
      */
     fun listRoutines(
-        callingUserId: String,
+        callingUserId: Long,
         onlyMine: Boolean,
         search: String?,
         page: Int,
@@ -66,7 +66,7 @@ class RoutineService(
      *   - Public routines are visible to everyone
      *   - Private routines are only visible to their creator
      */
-    fun getRoutine(id: Long, callingUserId: String): RoutineResponse {
+    fun getRoutine(id: Long, callingUserId: Long): RoutineResponse {
         val routine = routineRepo.findById(id)
             ?: throw NoSuchElementException("Routine with id '$id' not found")
 
@@ -79,7 +79,7 @@ class RoutineService(
 
     // ── Create ────────────────────────────────────────────────────────────────
 
-    fun createRoutine(request: CreateRoutineRequest, userId: String): RoutineResponse {
+    fun createRoutine(request: CreateRoutineRequest, userId: Long): RoutineResponse {
         val now = LocalDateTime.now().format(DB_FMT)
 
         val routine = Routine(
@@ -98,7 +98,7 @@ class RoutineService(
 
     // ── Update ────────────────────────────────────────────────────────────────
 
-    fun updateRoutine(id: Long, request: UpdateRoutineRequest, userId: String): RoutineResponse {
+    fun updateRoutine(id: Long, request: UpdateRoutineRequest, userId: Long): RoutineResponse {
         val existing = routineRepo.findById(id)
             ?: throw NoSuchElementException("Routine with id '$id' not found")
 
@@ -121,7 +121,7 @@ class RoutineService(
 
     // ── Delete ────────────────────────────────────────────────────────────────
 
-    fun deleteRoutine(id: Long, userId: String) {
+    fun deleteRoutine(id: Long, userId: Long) {
         val existing = routineRepo.findById(id)
             ?: throw NoSuchElementException("Routine with id '$id' not found")
 
@@ -141,7 +141,7 @@ class RoutineService(
      *   - Any public routine
      *   - Their own routines (public or private)
      */
-    fun cloneRoutine(id: Long, userId: String): RoutineResponse {
+    fun cloneRoutine(id: Long, userId: Long): RoutineResponse {
         val source = routineRepo.findById(id)
             ?: throw NoSuchElementException("Routine with id '$id' not found")
 
@@ -179,7 +179,7 @@ class RoutineService(
         estimatedMinutes = estimatedMinutes,
         tags             = tags,
         isPublic         = isPublic == 1,
-        createdBy        = createdBy,
+        createdBy        = createdBy.toString(),
         createdAt        = createdAt.replace(" ", "T"),
         updatedAt        = updatedAt.replace(" ", "T")
     )
@@ -192,7 +192,7 @@ class RoutineService(
         tags             = tags,
         itemCount        = items.size,
         isPublic         = isPublic == 1,
-        createdBy        = createdBy,
+        createdBy        = createdBy.toString(),
         updatedAt        = updatedAt.replace(" ", "T")
     )
 }

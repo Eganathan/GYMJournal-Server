@@ -54,7 +54,7 @@ class ExerciseService(
     // ---------------------------------------------------------------------------
 
     fun listExercises(
-        callingUserId: String,
+        callingUserId: Long,
         categoryId: Long?,
         equipmentId: Long?,
         difficulty: String?,
@@ -85,13 +85,13 @@ class ExerciseService(
             ApiMeta(page = safePage, pageSize = safeSize, total = total)
     }
 
-    fun getExercise(callingUserId: String, id: Long): ExerciseResponse {
+    fun getExercise(callingUserId: Long, id: Long): ExerciseResponse {
         val exercise = exerciseRepo.findById(id)
             ?: throw NoSuchElementException("Exercise $id not found")
         return exercise.toResponse()
     }
 
-    fun createExercise(userId: String, request: CreateExerciseRequest): ExerciseResponse {
+    fun createExercise(userId: Long, request: CreateExerciseRequest): ExerciseResponse {
         // Validate FK IDs exist in lookup tables
         if (muscleGroupRepo.findById(request.primaryMuscleId) == null)
             throw NoSuchElementException("Muscle group with id '${request.primaryMuscleId}' not found")
@@ -117,7 +117,7 @@ class ExerciseService(
         return exerciseRepo.save(exercise).toResponse()
     }
 
-    fun updateExercise(userId: String, id: Long, request: UpdateExerciseRequest): ExerciseResponse {
+    fun updateExercise(userId: Long, id: Long, request: UpdateExerciseRequest): ExerciseResponse {
         val existing = exerciseRepo.findById(id)
             ?: throw NoSuchElementException("Exercise $id not found")
         if (existing.createdBy != userId)
@@ -150,7 +150,7 @@ class ExerciseService(
         return (exerciseRepo.findById(id) ?: updated).toResponse()
     }
 
-    fun deleteExercise(userId: String, id: Long) {
+    fun deleteExercise(userId: Long, id: Long) {
         val existing = exerciseRepo.findById(id)
             ?: throw NoSuchElementException("Exercise $id not found")
         if (existing.createdBy != userId)
@@ -192,7 +192,7 @@ class ExerciseService(
         imageUrl         = imageUrl,
         videoUrl         = videoUrl,
         tags             = tags,
-        createdBy        = createdBy,
+        createdBy        = createdBy.toString(),
         createdAt        = createdAt.replace(" ", "T"),
         updatedAt        = updatedAt.replace(" ", "T")
     )
@@ -203,6 +203,6 @@ class ExerciseService(
         primaryMuscleId = primaryMuscleId.toString(),
         equipmentId     = equipmentId.toString(),
         difficulty      = difficulty.name,
-        createdBy       = createdBy
+        createdBy       = createdBy.toString()
     )
 }

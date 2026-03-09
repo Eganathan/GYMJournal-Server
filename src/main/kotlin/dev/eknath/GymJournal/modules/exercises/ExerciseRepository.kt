@@ -22,38 +22,35 @@ class ExerciseRepository(
     // ---------------------------------------------------------------------------
 
     /**
-     * Returns exercises matching the given filters. Search by name is done in-memory
-     * after the ZCQL fetch because ZCQL does not support reliable full-text search.
+     * Returns exercises matching the given filters.
      *
-     * All exercises are public. `onlyMine` filters by CREATORID to show just the
-     * calling user's own contributions.
+     * Numeric FK predicates (muscleId, equipmentId) are applied in ZCQL — numeric
+     * WHERE clauses are reliable in AppSail.
+     *
+     * String-based filters (difficulty, onlyMine/userId) are applied in-memory after
+     * the ZCQL fetch. ZCQL WHERE on user-created Var Char columns silently ignores
+     * the condition in AppSail, returning all rows instead of filtering.
      */
     fun findAll(
-        callingUserId: String,
+        callingUserId: Long,
         muscleId: Long?,
         equipmentId: Long?,
         difficulty: String?,
         onlyMine: Boolean
     ): List<Exercise> {
+        // Numeric conditions (USER_ID BigInt, muscleId, equipmentId) go into ZCQL — reliable
         val conditions = mutableListOf<String>()
-
-        if (onlyMine) {
-            // Use explicit userId column — CREATORID is unreliable in AppSail (app credentials, not user)
-            conditions.add("userId = '${ZcqlSanitizer.sanitize(callingUserId)}'")
-        }
-        muscleId?.let {
-            conditions.add("primaryMuscleId = $it")
-        }
-        equipmentId?.let {
-            conditions.add("equipmentId = $it")
-        }
-        difficulty?.let {
-            conditions.add("difficulty = '${ZcqlSanitizer.sanitize(it)}'")
-        }
+        if (onlyMine) conditions.add("USER_ID = $callingUserId")
+        muscleId?.let    { conditions.add("primaryMuscleId = $it") }
+        equipmentId?.let { conditions.add("equipmentId = $it") }
 
         val where = if (conditions.isEmpty()) "" else " WHERE ${conditions.joinToString(" AND ")}"
-        // ZCQL hard cap is 300 rows — make it explicit. Service does in-memory pagination on top.
-        return db.query("SELECT * FROM $TABLE$where ORDER BY name ASC LIMIT 0,300").map { it.toExercise() }
+        val rows = db.query("SELECT * FROM $TABLE$where ORDER BY name ASC LIMIT 0,300")
+            .map { it.toExercise() }
+
+        // Difficulty is a string column — filter in-memory (ZCQL string WHERE is unreliable)
+        return if (difficulty == null) rows
+        else rows.filter { it.difficulty.name.equals(difficulty, ignoreCase = true) }
     }
 
     fun findById(id: Long): Exercise? =
@@ -96,7 +93,7 @@ class ExerciseRepository(
         videoUrl         = get("videoUrl")?.toString()?.takeIf { it.isNotBlank() },
         tags             = get("tags")?.toString().toStringList(),
         // Catalyst system columns — auto-provided, never written in toMap()
-        createdBy        = get("userId")?.toString() ?: "",
+        createdBy        = get("USER_ID")?.toString()?.toLongOrNull() ?: 0L,
         createdAt        = get("CREATEDTIME")?.toString() ?: "",
         updatedAt        = get("MODIFIEDTIME")?.toString() ?: ""
     )
@@ -104,7 +101,7 @@ class ExerciseRepository(
     private fun Exercise.toMap(): Map<String, Any> = buildMap {
         // userId stored explicitly — CREATORID is unreliable in AppSail (app credentials, not user)
         // CREATEDTIME, MODIFIEDTIME are still auto-set by Catalyst
-        put("userId", createdBy)
+        put("USER_ID", createdBy)
         put("name", name)
         put("description", description)
         put("primaryMuscleId", primaryMuscleId)

@@ -50,7 +50,7 @@ class WorkoutService(
      *   1. Fetch the routine (must be public or owned by the caller)
      *   2. Pre-populate WorkoutSets from the routine's items
      */
-    fun startSession(request: StartWorkoutRequest, userId: String): WorkoutSessionResponse {
+    fun startSession(request: StartWorkoutRequest, userId: Long): WorkoutSessionResponse {
         // Validate caller-supplied startedAt before touching the DB
         request.startedAt?.let { validateDatetimeFormat(it, "startedAt") }
 
@@ -192,7 +192,7 @@ class WorkoutService(
     // ── List Sessions ─────────────────────────────────────────────────────────
 
     fun listSessions(
-        userId: String,
+        userId: Long,
         status: String?,
         startDate: String?,
         endDate: String?,
@@ -212,7 +212,7 @@ class WorkoutService(
 
     // ── Get Full Session ──────────────────────────────────────────────────────
 
-    fun getSession(id: Long, userId: String): WorkoutSessionResponse {
+    fun getSession(id: Long, userId: Long): WorkoutSessionResponse {
         val session = sessionRepo.findById(id)
             ?: throw NoSuchElementException("Workout session with id '$id' not found")
         if (session.userId != userId) throw IllegalAccessException("Session $id does not belong to this user")
@@ -221,7 +221,7 @@ class WorkoutService(
 
     // ── Patch Session ─────────────────────────────────────────────────────────
 
-    fun patchSession(id: Long, request: PatchWorkoutRequest, userId: String): WorkoutSessionResponse {
+    fun patchSession(id: Long, request: PatchWorkoutRequest, userId: Long): WorkoutSessionResponse {
         val existing = sessionRepo.findById(id)
             ?: throw NoSuchElementException("Workout session with id '$id' not found")
         if (existing.userId != userId) throw IllegalAccessException("Session $id does not belong to this user")
@@ -244,7 +244,7 @@ class WorkoutService(
      * but none have been logged (actualReps > 0). This prevents accidental empty completions.
      * [force] = true: skips the check — useful for REST-only / CARDIO-only / stretching sessions.
      */
-    fun completeSession(id: Long, userId: String, force: Boolean = false): WorkoutSessionResponse {
+    fun completeSession(id: Long, userId: Long, force: Boolean = false): WorkoutSessionResponse {
         val existing = sessionRepo.findById(id)
             ?: throw NoSuchElementException("Workout session with id '$id' not found")
         if (existing.userId != userId) throw IllegalAccessException("Session $id does not belong to this user")
@@ -311,7 +311,7 @@ class WorkoutService(
 
     // ── Delete Session ────────────────────────────────────────────────────────
 
-    fun deleteSession(id: Long, userId: String) {
+    fun deleteSession(id: Long, userId: Long) {
         val existing = sessionRepo.findById(id)
             ?: throw NoSuchElementException("Workout session with id '$id' not found")
         if (existing.userId != userId) throw IllegalAccessException("Session $id does not belong to this user")
@@ -322,7 +322,7 @@ class WorkoutService(
 
     // ── Set CRUD ──────────────────────────────────────────────────────────────
 
-    fun addSet(sessionId: Long, request: AddSetRequest, userId: String): WorkoutSetResponse {
+    fun addSet(sessionId: Long, request: AddSetRequest, userId: Long): WorkoutSetResponse {
         val session = sessionRepo.findById(sessionId)
             ?: throw NoSuchElementException("Workout session with id '$sessionId' not found")
         if (session.userId != userId) throw IllegalAccessException("Session $sessionId does not belong to this user")
@@ -361,7 +361,7 @@ class WorkoutService(
         return setRepo.save(set).toResponse()
     }
 
-    fun updateSet(sessionId: Long, setId: Long, request: UpdateSetRequest, userId: String): WorkoutSetResponse {
+    fun updateSet(sessionId: Long, setId: Long, request: UpdateSetRequest, userId: Long): WorkoutSetResponse {
         val session = sessionRepo.findById(sessionId)
             ?: throw NoSuchElementException("Workout session with id '$sessionId' not found")
         if (session.userId != userId) throw IllegalAccessException("Session $sessionId does not belong to this user")
@@ -395,7 +395,7 @@ class WorkoutService(
         return (setRepo.findById(setId) ?: updated).toResponse()
     }
 
-    fun deleteSet(sessionId: Long, setId: Long, userId: String) {
+    fun deleteSet(sessionId: Long, setId: Long, userId: Long) {
         val session = sessionRepo.findById(sessionId)
             ?: throw NoSuchElementException("Workout session with id '$sessionId' not found")
         if (session.userId != userId) throw IllegalAccessException("Session $sessionId does not belong to this user")
@@ -417,7 +417,7 @@ class WorkoutService(
      */
     fun getExerciseHistory(
         exerciseId: Long,
-        userId: String,
+        userId: Long,
         page: Int,
         pageSize: Int
     ): Pair<List<WorkoutSetResponse>, ApiMeta> {
@@ -436,7 +436,7 @@ class WorkoutService(
      * Returns personal best sets for [exerciseId] belonging to [userId].
      * One record per distinct rep count (highest weight), sorted by reps descending.
      */
-    fun getPersonalBests(exerciseId: Long, userId: String): List<WorkoutSetResponse> {
+    fun getPersonalBests(exerciseId: Long, userId: Long): List<WorkoutSetResponse> {
         val history = setRepo.findExerciseHistory(userId, exerciseId)
         if (history.isEmpty()) return emptyList()
 

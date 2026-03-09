@@ -16,7 +16,7 @@ class InsightsService(
      *
      * Returns an empty list if the user has no metric data yet.
      */
-    fun getInsights(userId: String, gender: Gender?): List<MetricInsight> {
+    fun getInsights(userId: Long, gender: Gender?): List<MetricInsight> {
         // Reuse the existing snapshot logic — includes computed bmi/smiComputed
         val snapshot = bodyMetricService.getSnapshot(userId)
         if (snapshot.isEmpty()) return emptyList()

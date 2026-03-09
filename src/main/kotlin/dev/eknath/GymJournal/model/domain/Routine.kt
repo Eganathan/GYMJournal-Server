@@ -50,7 +50,7 @@ data class Routine(
     val estimatedMinutes: Int,              // advisory; 0 = not set
     val tags: List<String>,                 // JSON-serialised in DB
     val isPublic: Int,                      // 1 = anyone can browse/clone, 0 = private
-    val createdBy: String,                  // stored in explicit userId column (CREATORID unreliable in AppSail)
+    val createdBy: Long,                    // BigInt column USER_ID — numeric WHERE is reliable in ZCQL
     val createdAt: String,                  // CREATEDTIME — auto-set by Catalyst (yyyy-MM-dd HH:mm:ss in DB)
     val updatedAt: String                   // MODIFIEDTIME — auto-set by Catalyst (yyyy-MM-dd HH:mm:ss in DB)
 )

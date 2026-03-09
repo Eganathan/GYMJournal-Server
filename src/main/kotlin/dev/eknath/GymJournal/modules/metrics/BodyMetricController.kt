@@ -90,7 +90,7 @@ class BodyMetricController(private val service: BodyMetricService) {
     // ---------------------------------------------------------------------------
 
     /**
-     * GET /api/v1/metrics/custom
+     * GET /api/v1/body-metrics/custom
      * List the calling user's custom metric definitions.
      */
     @GetMapping("/custom")
@@ -98,7 +98,7 @@ class BodyMetricController(private val service: BodyMetricService) {
         ApiResponse.ok(service.listCustomDefs(currentUserId()))
 
     /**
-     * POST /api/v1/metrics/custom
+     * POST /api/v1/body-metrics/custom
      * Create a custom metric definition.
      * The metricKey is derived server-side from the label.
      * Returns 400 if a definition with the same derived key already exists.
@@ -109,7 +109,7 @@ class BodyMetricController(private val service: BodyMetricService) {
         ApiResponse.ok(service.addCustomDef(currentUserId(), request))
 
     /**
-     * DELETE /api/v1/metrics/custom/{key}
+     * DELETE /api/v1/body-metrics/custom/{key}
      * Delete a custom metric definition and cascade-delete all its entries.
      */
     @DeleteMapping("/custom/{key}")

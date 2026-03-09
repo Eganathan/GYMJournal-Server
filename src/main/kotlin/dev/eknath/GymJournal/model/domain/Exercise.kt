@@ -32,7 +32,7 @@ data class Exercise(
     val imageUrl: String?,
     val videoUrl: String?,
     val tags: List<String>,                 // e.g. ["compound", "pull", "bodyweight"]
-    val createdBy: String,                  // stored in explicit userId column (CREATORID unreliable in AppSail)
+    val createdBy: Long,                    // BigInt column USER_ID — numeric WHERE is reliable in ZCQL
     val createdAt: String,                  // CREATEDTIME — auto-set by Catalyst
     val updatedAt: String                   // MODIFIEDTIME — auto-set by Catalyst
 )

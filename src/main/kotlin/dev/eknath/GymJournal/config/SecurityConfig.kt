@@ -1,5 +1,6 @@
 package dev.eknath.GymJournal.config
 
+import org.springframework.boot.web.servlet.FilterRegistrationBean
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.core.annotation.Order
@@ -13,6 +14,24 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @Configuration
 @EnableWebSecurity
 class SecurityConfig(private val catalystAuthFilter: CatalystAuthFilter) {
+
+    /**
+     * Disable Spring Boot's automatic servlet-filter registration of CatalystAuthFilter.
+     *
+     * When a @Component filter is present Spring Boot registers it as a standalone servlet
+     * filter (outside the Spring Security FilterChainProxy). Because CatalystAuthFilter is
+     * also added to the security chain via addFilterBefore, it would run twice — but
+     * OncePerRequestFilter prevents the second execution. The result is that the first
+     * (standalone) run sets the SecurityContext, then Spring Security's
+     * SecurityContextHolderFilter overwrites it with a fresh empty context, and the
+     * authorisation check sees no auth → 403.
+     *
+     * By disabling auto-registration here the filter runs ONLY inside the Spring Security
+     * chain where it sets auth on the correct SecurityContext.
+     */
+    @Bean
+    fun catalystAuthFilterRegistration(filter: CatalystAuthFilter): FilterRegistrationBean<CatalystAuthFilter> =
+        FilterRegistrationBean(filter).apply { isEnabled = false }
 
     // Public API endpoint — health check, no auth required
     @Bean

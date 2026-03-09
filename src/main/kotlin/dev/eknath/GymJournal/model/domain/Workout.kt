@@ -10,7 +10,7 @@ package dev.eknath.GymJournal.model.domain
  */
 data class WorkoutSession(
     val id: Long? = null,
-    val userId: String,                  // explicit column for ZCQL queries; mirrors CREATORID
+    val userId: Long,                    // BigInt column USER_ID — numeric WHERE is reliable in ZCQL
     val routineId: Long,                 // always set — every session belongs to a routine
     val routineName: String,             // denormalised for display
     val name: String,
@@ -37,7 +37,7 @@ data class WorkoutSession(
 data class WorkoutSet(
     val id: Long? = null,
     val sessionId: Long,
-    val userId: String,                  // denormalised for direct ZCQL queries
+    val userId: Long,                    // BigInt column USER_ID — numeric WHERE is reliable in ZCQL
     val exerciseId: Long?,               // null for REST / CARDIO (FK col is non-mandatory)
     val exerciseName: String,            // "" for REST; activity name for CARDIO
     val itemType: String,                // "EXERCISE" | "REST" | "CARDIO"

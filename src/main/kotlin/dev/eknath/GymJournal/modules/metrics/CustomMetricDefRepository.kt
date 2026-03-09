@@ -3,7 +3,6 @@ package dev.eknath.GymJournal.modules.metrics
 import com.zc.component.`object`.ZCRowObject
 import dev.eknath.GymJournal.model.domain.CustomMetricDef
 import dev.eknath.GymJournal.repository.CatalystDataStoreRepository
-import dev.eknath.GymJournal.util.ZcqlSanitizer
 import org.springframework.stereotype.Repository
 
 private const val TABLE = "CustomMetricDefs"
@@ -15,21 +14,22 @@ class CustomMetricDefRepository(private val db: CatalystDataStoreRepository) {
     // Queries
     // ---------------------------------------------------------------------------
 
-    /** Returns all custom metric definitions for [userId], sorted by label ASC. */
-    fun findAll(userId: String): List<CustomMetricDef> =
-        db.query(
-            "SELECT * FROM $TABLE" +
-            " WHERE userId = '${ZcqlSanitizer.sanitize(userId)}'" +
-            " ORDER BY label ASC"
-        ).map { it.toDef() }
+    /**
+     * Returns all custom metric definitions for [userId], sorted by label ASC.
+     *
+     * Fetches all rows without a WHERE clause and filters in-memory.
+     * ZCQL WHERE on user-created Var Char columns (userId) is unreliable
+     * in AppSail — the filter is silently ignored, returning all users' data.
+     */
+    fun findAll(userId: Long): List<CustomMetricDef> =
+        db.query("SELECT * FROM $TABLE WHERE USER_ID = $userId LIMIT 0,300")
+            .map { it.toDef() }
+            .sortedBy { it.label }
 
-    /** Returns the definition matching [metricKey] for [userId], or null if not found. */
-    fun findByKey(userId: String, metricKey: String): CustomMetricDef? =
-        db.queryOne(
-            "SELECT * FROM $TABLE" +
-            " WHERE userId = '${ZcqlSanitizer.sanitize(userId)}'" +
-            " AND metricKey = '${ZcqlSanitizer.sanitize(metricKey)}'"
-        )?.toDef()
+    fun findByKey(userId: Long, metricKey: String): CustomMetricDef? =
+        db.query("SELECT * FROM $TABLE WHERE USER_ID = $userId LIMIT 0,300")
+            .map { it.toDef() }
+            .firstOrNull { it.metricKey == metricKey }
 
     // ---------------------------------------------------------------------------
     // Mutations
@@ -57,14 +57,14 @@ class CustomMetricDefRepository(private val db: CatalystDataStoreRepository) {
         label     = get("label")?.toString() ?: "",
         unit      = get("unit")?.toString() ?: "",
         // Prefer explicit userId column; CREATORID is unreliable in AppSail (app credentials, not user)
-        createdBy = get("userId")?.toString() ?: "",
+        createdBy = get("USER_ID")?.toString()?.toLongOrNull() ?: 0L,
         createdAt = get("CREATEDTIME")?.toString() ?: ""
     )
 
     private fun CustomMetricDef.toMap(): Map<String, Any> = buildMap {
         // userId stored explicitly — CREATORID is unreliable in AppSail (app credentials, not user)
         // CREATEDTIME is still auto-set by Catalyst
-        put("userId", createdBy)
+        put("USER_ID", createdBy)
         put("metricKey", metricKey)
         put("label", label)
         put("unit", unit)
