@@ -1,7 +1,5 @@
 package dev.eknath.GymJournal.repository
 
-import com.zc.common.ZCProject
-import com.zc.common.ZCProjectConfig
 import com.zc.component.`object`.ZCObject
 import com.zc.component.`object`.ZCRowObject
 import com.zc.component.zcql.ZCQL
@@ -18,10 +16,8 @@ import java.util.logging.Logger
  *   ZCObject.getTableInstance(name)  — table handle for insert/update/delete/getRow
  *   ZCRowObject.getInstance()        — row builder: call row.set("col", value) then insert
  *
- * ZCProject.initProject(devConfig) is called at the start of every operation
- * (confirmed production pattern from croptor-catalyst-app). This ensures each
- * DataStore operation has fresh project context with the Development environment,
- * since getDefaultProjectConfig() defaults to Production.
+ * SDK context is established once per request by CatalystSDK.init(AuthHeaderProvider)
+ * in CatalystAuthFilter — no per-operation initProject() needed.
  *
  * Single-row lookup: always use getRow(tableName, rowId) — never ZCQL for findById.
  * Note: `object` is a Kotlin keyword and must be backtick-escaped in imports.
@@ -32,30 +28,11 @@ class CatalystDataStoreRepository {
 
     companion object {
         private val LOGGER = Logger.getLogger(CatalystDataStoreRepository::class.java.name)
-        private const val ENV_DEVELOPMENT = "Development"
-    }
-
-    /**
-     * Initialises ZCProject with the Development environment before each DataStore operation.
-     * Called at the start of every public method — matches the Croptor production pattern
-     * of per-operation project init to ensure correct SDK context.
-     */
-    private fun initProject() {
-        val defaultConfig = ZCProject.getDefaultProjectConfig() ?: return
-        val devConfig = ZCProjectConfig.newBuilder()
-            .setProjectId(defaultConfig.projectId)
-            .setProjectKey(defaultConfig.projectKey)
-            .setProjectDomain(defaultConfig.projectDomain)
-            .setZcAuth(defaultConfig.zcAuth)
-            .setEnvironment(ENV_DEVELOPMENT)
-            .build()
-        ZCProject.initProject(devConfig)
     }
 
     fun query(zcql: String): List<ZCRowObject> {
         LOGGER.log(Level.INFO, "[DataStore] Query → $zcql")
         return try {
-            initProject()
             val result = ZCQL.getInstance().executeQuery(zcql)
             LOGGER.log(Level.INFO, "[DataStore] Query returned ${result.size} row(s)")
             result
@@ -70,7 +47,6 @@ class CatalystDataStoreRepository {
     fun insert(tableName: String, data: Map<String, Any>): ZCRowObject {
         LOGGER.log(Level.INFO, "[DataStore] Insert → $tableName fields=${data.keys}")
         return try {
-            initProject()
             val table = ZCObject.getInstance().getTableInstance(tableName)
             val row = ZCRowObject.getInstance()
             data.forEach { (k, v) -> row.set(k, v) }
@@ -86,7 +62,6 @@ class CatalystDataStoreRepository {
     fun update(tableName: String, rowId: Long, data: Map<String, Any>) {
         LOGGER.log(Level.INFO, "[DataStore] Update → $tableName ROWID=$rowId fields=${data.keys}")
         try {
-            initProject()
             val table = ZCObject.getInstance().getTableInstance(tableName)
             val row = ZCRowObject.getInstance()
             row.set("ROWID", rowId)
@@ -102,7 +77,6 @@ class CatalystDataStoreRepository {
     fun delete(tableName: String, rowId: Long) {
         LOGGER.log(Level.INFO, "[DataStore] Delete → $tableName ROWID=$rowId")
         try {
-            initProject()
             ZCObject.getInstance().getTableInstance(tableName).deleteRow(rowId)
             LOGGER.log(Level.INFO, "[DataStore] Deleted $tableName ROWID=$rowId")
         } catch (e: Throwable) {
@@ -126,7 +100,6 @@ class CatalystDataStoreRepository {
     fun getRow(tableName: String, rowId: Long): ZCRowObject? {
         LOGGER.log(Level.INFO, "[DataStore] GetRow → $tableName ROWID=$rowId")
         return try {
-            initProject()
             val result = ZCObject.getInstance().getTableInstance(tableName).getRow(rowId)
             LOGGER.log(Level.INFO, "[DataStore] GetRow found in $tableName ROWID=$rowId")
             result
