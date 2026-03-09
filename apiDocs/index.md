@@ -75,6 +75,7 @@ Every endpoint (except `GET /api/v1/health`) returns a consistent JSON wrapper:
 | [routines.md](./routines.md) | Routine templates — create, browse, clone public routines |
 | [workouts.md](./workouts.md) | Workout session logging — start/complete sessions, log sets, PBs, history |
 | [media.md](./media.md) | `POST /api/v1/media/upload` — image/video uploads to Catalyst FileStore |
+| [logs.md](./logs.md) | Gym log entries — injuries, medication notes, daily observations |
 
 ---
 

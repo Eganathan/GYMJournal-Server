@@ -33,3 +33,11 @@ data class WaterHistoryResponse(
     val goalMl: Int,
     val progressPercent: Int
 )
+
+data class SetGoalRequest(
+    @field:Min(1) val goalMl: Int
+)
+
+data class GoalResponse(
+    val goalMl: Int
+)

@@ -7,41 +7,53 @@ import org.springframework.stereotype.Service
 private const val DEFAULT_DAILY_GOAL_ML = 2500
 
 @Service
-class WaterIntakeService(private val repository: WaterIntakeRepository) {
+class WaterIntakeService(
+    private val repository: WaterIntakeRepository,
+    private val goalRepository: HydrationGoalRepository
+) {
 
     fun logWater(userId: Long, request: LogWaterRequest): WaterEntryResponse {
         val entry = WaterIntakeEntry(
             userId   = userId,
             amountMl = request.amountMl,
             notes    = request.notes
-            // CREATEDTIME is set automatically by Catalyst on insert — no logDateTime needed
         )
         return repository.save(entry).toResponse()
     }
 
+    fun getGoal(userId: Long): GoalResponse =
+        GoalResponse(goalMl = goalRepository.findByUser(userId) ?: DEFAULT_DAILY_GOAL_ML)
+
+    fun setGoal(userId: Long, goalMl: Int): GoalResponse {
+        goalRepository.upsert(userId, goalMl)
+        return GoalResponse(goalMl = goalMl)
+    }
+
     fun getDailySummary(userId: Long, date: String): DailyWaterResponse {
+        val goalMl = goalRepository.findByUser(userId) ?: DEFAULT_DAILY_GOAL_ML
         val entries = repository.findEntriesForDate(userId, date)
         val totalMl = entries.sumOf { it.amountMl }
         return DailyWaterResponse(
             date            = date,
             totalMl         = totalMl,
-            goalMl          = DEFAULT_DAILY_GOAL_ML,
-            progressPercent = ((totalMl.toDouble() / DEFAULT_DAILY_GOAL_ML) * 100).toInt().coerceAtMost(100),
+            goalMl          = goalMl,
+            progressPercent = ((totalMl.toDouble() / goalMl) * 100).toInt().coerceAtMost(100),
             entries         = entries.map { it.toResponse() }
         )
     }
 
     fun getHistory(userId: Long, startDate: String, endDate: String): List<WaterHistoryResponse> {
+        val goalMl = goalRepository.findByUser(userId) ?: DEFAULT_DAILY_GOAL_ML
         val entries = repository.findEntriesForDateRange(userId, startDate, endDate)
         return entries
-            .groupBy { it.createdAt.substring(0, 10) }   // group by YYYY-MM-DD from CREATEDTIME
+            .groupBy { it.createdAt.substring(0, 10) }
             .map { (date, dayEntries) ->
                 val totalMl = dayEntries.sumOf { it.amountMl }
                 WaterHistoryResponse(
                     date            = date,
                     totalMl         = totalMl,
-                    goalMl          = DEFAULT_DAILY_GOAL_ML,
-                    progressPercent = ((totalMl.toDouble() / DEFAULT_DAILY_GOAL_ML) * 100).toInt().coerceAtMost(100)
+                    goalMl          = goalMl,
+                    progressPercent = ((totalMl.toDouble() / goalMl) * 100).toInt().coerceAtMost(100)
                 )
             }
             .sortedByDescending { it.date }
@@ -69,7 +81,7 @@ class WaterIntakeService(private val repository: WaterIntakeRepository) {
 
     private fun WaterIntakeEntry.toResponse() = WaterEntryResponse(
         id          = (id ?: 0).toString(),
-        logDateTime = createdAt.replace(" ", "T"),   // CREATEDTIME "yyyy-MM-dd HH:mm:ss" → ISO-8601
+        logDateTime = createdAt.replace(" ", "T"),
         amountMl    = amountMl,
         notes       = notes
     )

@@ -2,6 +2,7 @@ package dev.eknath.GymJournal.modules.hydration
 
 import com.zc.component.users.ZCUser
 import dev.eknath.GymJournal.model.dto.LogWaterRequest
+import dev.eknath.GymJournal.model.dto.SetGoalRequest
 import dev.eknath.GymJournal.model.dto.UpdateWaterEntryRequest
 import dev.eknath.GymJournal.util.ApiResponse
 import dev.eknath.GymJournal.util.currentUserId
@@ -13,6 +14,15 @@ import java.time.LocalDate
 @RestController
 @RequestMapping("/api/v1/water")
 class WaterIntakeController(private val service: WaterIntakeService) {
+
+    /** GET /api/v1/water/goal — returns the user's current daily goal. */
+    @GetMapping("/goal")
+    fun getGoal(): ApiResponse<*> = ApiResponse.ok(service.getGoal(currentUserId()))
+
+    /** PUT /api/v1/water/goal — set or update the daily goal. Body: { "goalMl": 3000 } */
+    @PutMapping("/goal")
+    fun setGoal(@Valid @RequestBody request: SetGoalRequest): ApiResponse<*> =
+        ApiResponse.ok(service.setGoal(currentUserId(), request.goalMl))
 
     /**
      * POST /api/v1/water
