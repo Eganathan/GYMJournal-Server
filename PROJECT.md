@@ -367,14 +367,14 @@ Idempotent — skips tables that already have rows. Call once after deploying to
 ## DataStore Tables
 
 > All tables are managed in the **Catalyst Console** — ZCQL has no DDL. System columns (`ROWID` BigInt auto-PK, `CREATORID`, `CREATEDTIME`, `MODIFIEDTIME`) are added automatically — never create these manually.
-> All user-owned tables have an explicit `userId` Var Char column — **do not** rely on `CREATORID` for ZCQL ownership queries.
+> All user-owned tables have an explicit `USER_ID` BigInt column for ownership. Use `WHERE USER_ID = $userId` in ZCQL — BigInt comparisons are reliable. Do **not** rely on `CREATORID`.
 
 ### WaterIntakeLogs
 **Catalyst Console Table ID:** `11585000000689556`
 
 | Column | Type | Mandatory | Notes |
 |---|---|---|---|
-| `userId` | Text | ✓ | Catalyst user ID (from `x-zc-user-id`) |
+| `USER_ID` | BigInt | ✓ | Catalyst user ID; used for ZCQL ownership queries |
 | `logDateTime` | DateTime | ✓ | Search-indexed; stored as `yyyy-MM-dd HH:mm:ss`; returned as ISO-8601 |
 | `amountMl` | Int | ✓ | Volume in millilitres (min 1) |
 | `notes` | Text | — | Optional free text |
@@ -424,7 +424,7 @@ Default data inserted via `POST /api/v1/admin/seed`.
 | `primaryMuscleId` | BigInt (FK) | ✓ | FK → `MuscleGroups.ROWID`; search-indexed |
 | `equipmentId` | BigInt (FK) | — | FK → `Equipment.ROWID` |
 | `secondaryMuscles` | Text | — | JSON array e.g. `["Rhomboids","Biceps"]` |
-| `userId` | Var Char | — | Creator's Catalyst user ID; used for ownership checks (edit/delete) |
+| `USER_ID` | BigInt | — | Creator's Catalyst user ID; used for ownership checks (edit/delete) |
 
 List fields (`secondaryMuscles`, `instructions`, `tips`, `tags`) are stored as JSON strings and serialised/deserialised by `ExerciseRepository` via Jackson `ObjectMapper`.
 
@@ -438,7 +438,7 @@ List fields (`secondaryMuscles`, `instructions`, `tips`, `tags`) are stored as J
 | `unit` | Text | ✓ | e.g. `kg`, `%`, `mg/dL` |
 | `logDate` | Date | ✓ | Search-indexed; `YYYY-MM-DD` date type — lexicographic `>=`/`<=` works for range queries |
 | `notes` | Text | — | Optional free-text note |
-| `userId` | Var Char | — | Creator's Catalyst user ID |
+| `USER_ID` | BigInt | — | Creator's Catalyst user ID. **Note:** previously `userId` Var Char — migrated to `USER_ID` BigInt; old column deleted from Console (was causing mandatory-column insert errors). |
 
 Computed metrics (`bmi`, `smiComputed`) are never stored — derived server-side in the snapshot endpoint.
 
@@ -450,7 +450,7 @@ Computed metrics (`bmi`, `smiComputed`) are never stored — derived server-side
 | `metricKey` | Text | ✓ | e.g. `custom_sgpt` — derived from label; unique per user (enforced in service) |
 | `label` | Text | ✓ | User-supplied display name, e.g. `SGPT` |
 | `unit` | Text | — | e.g. `U/L` — may be empty string |
-| `userId` | Var Char | — | Creator's Catalyst user ID |
+| `USER_ID` | BigInt | — | Creator's Catalyst user ID |
 
 ### Routines
 **Catalyst Console Table ID:** `11585000000700564`
@@ -463,7 +463,7 @@ Computed metrics (`bmi`, `smiComputed`) are never stored — derived server-side
 | `estimatedMinutes` | Int | — | Advisory duration hint; 0 = not set |
 | `isPublic` | Int | — | Search-indexed; default `0`; `1` = any user can see/clone; `0` = private |
 | `tags` | Text | — | JSON array e.g. `["push","chest"]` |
-| `userId` | Var Char | — | Creator's Catalyst user ID |
+| `USER_ID` | BigInt | — | Creator's Catalyst user ID |
 
 `items` JSON structure per item: `{ order, type, exerciseId?, exerciseName?, sets?, repsPerSet?, weightKg?, restAfterSeconds?, durationSeconds?, cardioName?, durationMinutes?, targetSpeedKmh? }`
 
@@ -472,7 +472,7 @@ Computed metrics (`bmi`, `smiComputed`) are never stored — derived server-side
 
 | Column | Type | Mandatory | Notes |
 |---|---|---|---|
-| `userId` | Var Char (100) | ✓ | Catalyst user ID. **Note:** was incorrectly created as `BigInt` — corrected to `Var Char (100)` in the Catalyst Console. |
+| `USER_ID` | BigInt | ✓ | Catalyst user ID |
 | `routineId` | BigInt (FK) | ✓ | FK → `Routines.ROWID`. Every session must reference a routine — no standalone sessions. |
 | `routineName` | Var Char | — | Denormalised routine name snapshot |
 | `name` | Var Char | ✓ | e.g. "Push Day - Mon 3 Mar" |
@@ -489,7 +489,7 @@ Computed metrics (`bmi`, `smiComputed`) are never stored — derived server-side
 | Column | Type | Mandatory | Notes |
 |---|---|---|---|
 | `sessionId` | BigInt (FK) | — | FK → `WorkoutSessions.ROWID` |
-| `userId` | Var Char | — | Denormalised for direct ZCQL queries (avoids joining sessions) |
+| `USER_ID` | BigInt | — | Denormalised owner ID for direct ZCQL queries (avoids joining sessions) |
 | `exerciseId` | BigInt (FK) | — | FK → `Exercises.ROWID`; `0` for REST/CARDIO |
 | `exerciseName` | Var Char | — | Denormalised; empty for REST; activity name for CARDIO |
 | `itemType` | Var Char | — | `EXERCISE` \| `REST` \| `CARDIO` |
